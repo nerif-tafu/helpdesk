@@ -79,7 +79,7 @@ function initSnapcraftNavigation() {
   if (!navigation) return;
 
   const menuButton = navigation.querySelector(
-    '.p-navigation__banner .p-navigation__toggle--open'
+    '.p-navigation__banner .js-menu-button'
   );
   if (!menuButton) return;
 

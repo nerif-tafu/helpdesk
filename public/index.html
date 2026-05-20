@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Conference Help Desk</title>
+    <title>Event Help Desk</title>
     <link rel="stylesheet" href="/css/main.css" />
     <link rel="icon" href="/favicon.png" type="image/png" sizes="16x16" />
   </head>
@@ -18,10 +18,14 @@
               <div class="p-navigation__logo-tag">
                 <img class="p-navigation__logo-icon" src="/favicon.svg" alt="" />
               </div>
-              <span class="p-navigation__logo-title">Conference Help Desk</span>
+              <span class="p-navigation__logo-title">Event Help Desk</span>
             </a>
           </div>
-          <a href="#" class="p-navigation__toggle--open" title="menu">Menu</a>
+          <ul class="p-navigation__items">
+            <li class="p-navigation__item">
+              <a href="#" class="js-menu-button p-navigation__link">Menu</a>
+            </li>
+          </ul>
         </div>
         <nav class="p-navigation__nav" aria-label="Help desk">
           <div class="p-navigation__items-wrapper">
@@ -104,6 +108,135 @@
         <div class="u-fixed-width u-no-padding--left u-no-padding--right">
           <div class="p-suru25light" aria-hidden="true"></div>
         </div>
+
+        <section class="p-strip is-shallow helpdesk-guides-strip">
+          <div class="u-fixed-width u-no-padding--left u-no-padding--right">
+            <h2 class="p-heading--4 u-sv1">Guides and FAQ</h2>
+            <div class="helpdesk-guides-content">
+              <div class="p-equal-height-row helpdesk-guides-row">
+                    <div class="p-equal-height-row__col is-borderless p-homepage-blog-card">
+                          <div class="p-equal-height-row__item">
+                            <div class="article-image p-image-container p-image-container--16-9 is-cover">
+                              <a href="/guides/wifi.html">
+                                <img
+                                  src="https://res.cloudinary.com/canonical/image/fetch/c_fill,f_auto,q_auto,fl_sanitize,w_924,h_520/https%3A%2F%2Fassets.ubuntu.com%2Fv1%2Ffaafd59d-wifi.webp"
+                                  alt=""
+                                  loading="lazy"
+                                  width="924"
+                                  height="520"
+                                  class="p-image-container__image"
+                                />
+                              </a>
+                            </div>
+                          </div>
+                          <div class="p-equal-height-row__item">
+                            <a class="article-link" href="/guides/wifi.html">
+                              <h3 class="p-heading--5 article-title">Connect to WiFi</h3>
+                            </a>
+                          </div>
+                          <div class="p-equal-height-row__item">
+                            <div class="article-excerpt">
+                              <p>
+                                Join WiFi from your tent card or QR code, and fix password or
+                                connection problems.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                    <div class="p-equal-height-row__col is-borderless p-homepage-blog-card">
+                          <div class="p-equal-height-row__item">
+                            <div class="article-image p-image-container p-image-container--16-9 is-cover">
+                              <a href="/guides/projectors.html">
+                                <img
+                                  src="https://res.cloudinary.com/canonical/image/fetch/c_fill,f_auto,q_auto,fl_sanitize,w_924,h_520/https%3A%2F%2Fassets.ubuntu.com%2Fv1%2F9b9dab98-projector.jpg"
+                                  alt=""
+                                  loading="lazy"
+                                  width="924"
+                                  height="520"
+                                  class="p-image-container__image"
+                                />
+                              </a>
+                            </div>
+                          </div>
+                          <div class="p-equal-height-row__item">
+                            <a class="article-link" href="/guides/projectors.html">
+                              <h3 class="p-heading--5 article-title">Projectors &amp; TVs</h3>
+                            </a>
+                          </div>
+                          <div class="p-equal-height-row__item">
+                            <div class="article-excerpt">
+                              <p>
+                                Turn on the display, plug in HDMI, choose duplicate or extend, and fix
+                                signal or sound.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                    <div class="p-equal-height-row__col is-borderless p-homepage-blog-card">
+                          <div class="p-equal-height-row__item">
+                            <div class="article-image p-image-container p-image-container--16-9 is-cover">
+                              <a href="/guides/remote-meetings-small-room.html">
+                                <img
+                                  src="https://res.cloudinary.com/canonical/image/fetch/c_fill,f_auto,q_auto,fl_sanitize,w_924,h_520/https%3A%2F%2Fassets.ubuntu.com%2Fv1%2Fd8c9b24f-smallbreak.jpg"
+                                  alt=""
+                                  loading="lazy"
+                                  width="924"
+                                  height="520"
+                                  class="p-image-container__image"
+                                />
+                              </a>
+                            </div>
+                          </div>
+                          <div class="p-equal-height-row__item">
+                            <a class="article-link" href="/guides/remote-meetings-small-room.html">
+                              <h3 class="p-heading--5 article-title">Remote meetings (Small room)</h3>
+                            </a>
+                          </div>
+                          <div class="p-equal-height-row__item">
+                            <div class="article-excerpt">
+                              <p>
+                                Plug in the Jabra speakerphone and set it as your mic and speaker in
+                                Google Meet.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                    <div class="p-equal-height-row__col is-borderless p-homepage-blog-card">
+                          <div class="p-equal-height-row__item">
+                            <div class="article-image p-image-container p-image-container--16-9 is-cover">
+                              <a href="/guides/remote-meetings-large-room.html">
+                                <img
+                                  src="https://res.cloudinary.com/canonical/image/fetch/c_fill,f_auto,q_auto,fl_sanitize,w_924,h_520/https%3A%2F%2Fassets.ubuntu.com%2Fv1%2F07859b3f-largebreak.webp"
+                                  alt=""
+                                  loading="lazy"
+                                  width="924"
+                                  height="520"
+                                  class="p-image-container__image"
+                                />
+                              </a>
+                            </div>
+                          </div>
+                          <div class="p-equal-height-row__item">
+                            <a class="article-link" href="/guides/remote-meetings-large-room.html">
+                              <h3 class="p-heading--5 article-title">Remote meetings (Large room)</h3>
+                            </a>
+                          </div>
+                          <div class="p-equal-height-row__item">
+                            <div class="article-excerpt">
+                              <p>
+                                Plug in the USB soundcard, set meeting audio and camera, and use both
+                                handheld mics.
+                              </p>
+                            </div>
+                          </div>
+                    </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
 

@@ -1,7 +1,23 @@
 // Sliding navigation behaviour from snapcraft.io (_snapcraft_p-navigation.scss)
 
 @mixin helpdesk-snapcraft-navigation {
+  // canonical.com: Menu in .p-navigation__banner .p-navigation__items (not .p-navigation__toggle--open)
   @media (width < $breakpoint-navigation-threshold) {
+    #navigation.p-navigation--sliding .p-navigation__banner {
+      align-items: center;
+
+      .p-navigation__tagged-logo {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .p-navigation__items {
+        align-items: center;
+        flex: 0 0 auto;
+        flex-wrap: nowrap;
+      }
+    }
+
     #navigation.p-navigation--sliding {
       @property --right {
         inherits: false;

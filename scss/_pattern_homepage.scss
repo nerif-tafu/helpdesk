@@ -45,4 +45,86 @@
     position: relative;
     z-index: 3;
   }
+
+  .helpdesk-guides-strip {
+    padding-top: $spv--x-large;
+  }
+
+  .helpdesk-guides-content {
+    min-height: 25rem;
+
+    .helpdesk-guides-row {
+      @media (width < $breakpoint-large) {
+        gap: 0 0.5rem;
+      }
+
+      // Stack image, title, and excerpt vertically on mobile/tablet (avoids subgrid overlap)
+      @media (width < $breakpoint-large) {
+        .p-equal-height-row__col {
+          display: flex;
+          flex-direction: column;
+          grid-row: auto;
+          grid-template-columns: none;
+          grid-template-rows: none;
+
+          .p-equal-height-row__item {
+            grid-column: unset;
+            grid-row: unset;
+            width: 100%;
+          }
+        }
+      }
+
+      @media (width > $breakpoint-small) and (width < $breakpoint-large) {
+        > .p-equal-height-row__col:nth-child(-n + 2) {
+          padding-bottom: $spv--strip-shallow;
+        }
+      }
+    }
+  }
+
+  .p-homepage-blog-card {
+    .article-image {
+      flex-shrink: 0;
+      width: 100%;
+
+      a {
+        display: block;
+        line-height: 0;
+      }
+    }
+    .article-link {
+      color: inherit;
+      text-decoration: none;
+
+      &:hover,
+      &:focus {
+        .article-title {
+          text-decoration: underline;
+        }
+      }
+    }
+
+    // canonical.com .p-homepage-blog-card h3 / p padding
+    .article-title {
+      margin: 0;
+      padding: $spv--large $sph--large 0;
+    }
+
+    .article-excerpt p {
+      margin: 0;
+      padding: $spv--small $sph--large $spv--large;
+    }
+  }
+}
+
+@mixin helpdesk-guide-page {
+  .helpdesk-guide-page-list {
+    max-width: 40rem;
+
+    .p-list__item {
+      padding-bottom: $spv--small;
+      padding-top: $spv--small;
+    }
+  }
 }

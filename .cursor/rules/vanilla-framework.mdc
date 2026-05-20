@@ -31,7 +31,7 @@ Custom styles live in `_pattern_*.scss` partials: `@import` then `@include proje
 
 - `body` → `class="l-site"` (optionally `is-paper` theme)
 - Skip link: `<a href="#main-content" class="u-off-screen">Skip to main content</a>`
-- Navigation: `header#navigation` with `p-navigation--sliding is-dark`, inner `p-navigation__row--25-75`, `p-navigation__tagged-logo`, mobile `p-navigation__toggle--open`
+- Navigation: `header#navigation` with `p-navigation--sliding is-dark`, inner `p-navigation__row--25-75`, `p-navigation__tagged-logo`, mobile Menu in `p-navigation__banner` → `ul.p-navigation__items` → `a.js-menu-button.p-navigation__link`
 - Main: `id="main-content"` wrapped in `section.p-strip` + inner `div.u-fixed-width`
 - Grid: `p-grid` / `p-grid__cell--span-*` / `p-grid__cell--small-span-4` (always set small-span for mobile)
 - Notifications: `p-notification--*` + `p-notification__content` + `u-hide` to toggle

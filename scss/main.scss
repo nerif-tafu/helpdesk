@@ -28,6 +28,8 @@ $color-paper: #f3f3f3;
 @include vf-p-tabs;
 @include vf-p-icons;
 @include vf-p-links;
+@include vf-p-equal-height-row;
+@include vf-p-image;
 
 @import "pattern_helpdesk-chat";
 @include helpdesk-chat;
@@ -41,3 +43,4 @@ $color-paper: #f3f3f3;
 
 @import "pattern_homepage";
 @include helpdesk-homepage;
+@include helpdesk-guide-page;
