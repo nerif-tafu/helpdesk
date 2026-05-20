@@ -31,7 +31,7 @@ Rooms, WiFi, hours, Telegram, and printouts are configured in the admin UI. Data
 Push a version tag to build an image on GHCR:
 
 ```bash
-git tag v1.1.0 && git push origin v1.1.0
+git tag v1.2.0 && git push origin v1.2.0
 ```
 
 ```bash
@@ -39,7 +39,7 @@ docker run -d -p 3000:3000 \
   -e ADMIN_PASSWORD=change-me \
   -e SESSION_SECRET=change-me \
   -v helpdesk-data:/app/data \
-  ghcr.io/nerif-tafu/helpdesk:1.1.0
+  ghcr.io/nerif-tafu/helpdesk:1.2.0
 ```
 
 ## Production
