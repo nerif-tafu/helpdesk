@@ -4,6 +4,10 @@ const TELEGRAM_API = 'https://api.telegram.org/bot';
 const MAX_LOGS = 200;
 const logs = [];
 
+// https://core.telegram.org/bots/api#markdownv2-style
+const MARKDOWN_V2_ESCAPE =
+  /[_*[\]()~`>#+\-=|{}.!\\]/g;
+
 function redactToken(text) {
   const { token } = getTelegramConfig();
   if (!token || !text) return text;
@@ -38,6 +42,16 @@ function resolveConfig(overrides = {}) {
   return { token, chatId };
 }
 
+/** Escape text for parse_mode MarkdownV2 (outside link URLs). */
+export function escapeMarkdownV2(text) {
+  return String(text).replace(MARKDOWN_V2_ESCAPE, '\\$&');
+}
+
+/** Inside inline link (...), only \\ and ) must be escaped. */
+function escapeMarkdownV2LinkUrl(url) {
+  return String(url).replace(/\\/g, '\\\\').replace(/\)/g, '\\)');
+}
+
 export async function sendTelegramMessage(text, overrides = {}) {
   const { token, chatId } = resolveConfig(overrides);
   if (!token || !chatId) {
@@ -54,7 +68,7 @@ export async function sendTelegramMessage(text, overrides = {}) {
       body: JSON.stringify({
         chat_id: chatId,
         text,
-        parse_mode: 'HTML',
+        parse_mode: 'MarkdownV2',
         disable_web_page_preview: true,
       }),
     });
@@ -85,26 +99,37 @@ export async function notifyTelegram(text) {
 
 export async function sendTelegramTestMessage(overrides = {}) {
   return sendTelegramMessage(
-    '<b>Help desk test</b>\nThis is a test notification from the admin panel.',
+    '*Help desk test*\nThis is a test notification from the admin panel\\.',
     overrides
   );
 }
 
-export function formatNewMessageNotification({ room, participantName, body, conversationId }) {
-  const who = participantName ? escapeHtml(participantName) : 'Participant';
-  const preview = escapeHtml(body.slice(0, 200));
-  return (
-    `<b>New help desk message</b>\n` +
-    `Room: <b>${escapeHtml(room)}</b>\n` +
-    `From: ${who}\n` +
-    `Message: ${preview}\n` +
-    `ID: <code>${conversationId.slice(0, 8)}</code>`
-  );
+export function buildAdminChatUrl(baseUrl, conversationId) {
+  const root = String(baseUrl || '').trim().replace(/\/$/, '');
+  const id = encodeURIComponent(conversationId);
+  return `${root}/admin.html?tab=conversations&conversation=${id}`;
 }
 
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+/**
+ * MarkdownV2: [Room](adminUrl) 💬 *Name*:
+ * message
+ * @see https://core.telegram.org/bots/api#markdownv2-style
+ */
+export function formatNewMessageNotification({
+  baseUrl,
+  room,
+  conversationId,
+  participantName,
+  sender,
+  body,
+}) {
+  const adminUrl = escapeMarkdownV2LinkUrl(buildAdminChatUrl(baseUrl, conversationId));
+  const roomLink = `[${escapeMarkdownV2(room)}](${adminUrl})`;
+  let header = `${roomLink} 💬`;
+  if (sender === 'support') {
+    header += ` *Support*:`;
+  } else if (participantName) {
+    header += ` *${escapeMarkdownV2(participantName)}*:`;
+  }
+  return `${header}\n${escapeMarkdownV2(body)}`;
 }

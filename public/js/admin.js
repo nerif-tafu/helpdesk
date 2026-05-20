@@ -5,6 +5,14 @@ let ws = null;
 let pollTimer = null;
 let typing = null;
 
+const ADMIN_TABS = [
+  { key: 'conversations', btn: 'tab-conversations-btn', panel: 'tab-conversations', onShow: null },
+  { key: 'rooms', btn: 'tab-rooms-btn', panel: 'tab-rooms', onShow: loadSettings },
+  { key: 'settings', btn: 'tab-settings-btn', panel: 'tab-settings', onShow: loadSettings },
+];
+
+let showAdminTab = () => {};
+
 export async function initAdmin() {
   const loginSection = document.getElementById('login-section');
   const dashboard = document.getElementById('dashboard-section');
@@ -38,6 +46,7 @@ export async function initAdmin() {
     selectedId = null;
     disconnectWs();
     showChatEmpty();
+    history.replaceState(null, '', window.location.pathname);
     showLogin();
   });
 
@@ -62,35 +71,90 @@ export async function initAdmin() {
     navGuest?.classList.add('u-hide');
     navGuest?.classList.remove('is-selected');
     navAuth?.classList.remove('u-hide');
-    loadQueue();
     loadSettings();
+    loadQueue().then(() => applyAdminUrlState({ initial: true }));
     startPolling();
   }
 }
 
-function initTabs() {
-  const tabs = [
-    { btn: 'tab-conversations-btn', panel: 'tab-conversations', onShow: null },
-    { btn: 'tab-rooms-btn', panel: 'tab-rooms', onShow: loadSettings },
-    { btn: 'tab-settings-btn', panel: 'tab-settings', onShow: loadSettings },
-  ];
+function getAdminUrlState() {
+  const params = new URLSearchParams(window.location.search);
+  let tab = params.get('tab') || 'conversations';
+  if (!ADMIN_TABS.some((t) => t.key === tab)) tab = 'conversations';
+  return { tab, conversation: params.get('conversation') };
+}
 
-  function showTab(activeId) {
-    for (const { btn, panel, onShow } of tabs) {
+function setAdminUrl(updates, { replace = false } = {}) {
+  const params = new URLSearchParams(window.location.search);
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === null || value === undefined || value === '') params.delete(key);
+    else params.set(key, value);
+  }
+  if (params.has('conversation')) params.set('tab', 'conversations');
+  const qs = params.toString();
+  const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+  const state = { admin: true };
+  if (replace) history.replaceState(state, '', url);
+  else history.pushState(state, '', url);
+}
+
+function applyAdminUrlState({ initial = false } = {}) {
+  const { tab, conversation } = getAdminUrlState();
+  showAdminTab(tab, { updateUrl: false });
+  if (initial) {
+    setAdminUrl(
+      { tab, conversation: conversation || null },
+      { replace: true }
+    );
+  }
+}
+
+function initTabs() {
+  function showTabByKey(tabKey, { updateUrl = true, replace = false } = {}) {
+    const tab =
+      ADMIN_TABS.find((t) => t.key === tabKey) ?? ADMIN_TABS[0];
+    for (const { btn, panel, onShow } of ADMIN_TABS) {
       const button = document.getElementById(btn);
       const panelEl = document.getElementById(panel);
-      const isActive = btn === activeId;
+      const isActive = btn === tab.btn;
       button?.classList.toggle('is-active', isActive);
       button?.setAttribute('aria-selected', String(isActive));
       panelEl?.classList.toggle('u-hide', !isActive);
       if (panelEl) panelEl.hidden = !isActive;
       if (isActive && onShow) onShow();
     }
+    if (updateUrl) {
+      const { conversation } = getAdminUrlState();
+      setAdminUrl({ tab: tab.key, conversation }, { replace });
+    }
+    if (tab.key === 'conversations') {
+      const { conversation } = getAdminUrlState();
+      if (conversation) {
+        if (selectedId !== conversation) {
+          void selectConversation(conversation, { updateUrl: false });
+        }
+      } else {
+        selectedId = null;
+        disconnectWs();
+        showChatEmpty();
+        loadQueue();
+      }
+    } else {
+      selectedId = null;
+      disconnectWs();
+      loadQueue();
+    }
   }
 
-  for (const { btn } of tabs) {
-    document.getElementById(btn)?.addEventListener('click', () => showTab(btn));
+  showAdminTab = showTabByKey;
+
+  for (const tab of ADMIN_TABS) {
+    document.getElementById(tab.btn)?.addEventListener('click', () => {
+      showTabByKey(tab.key);
+    });
   }
+
+  window.addEventListener('popstate', () => applyAdminUrlState());
 }
 
 function initSettingsForms() {
@@ -541,11 +605,22 @@ function applyPresenceToHeader(online) {
     'p-status-label' + (online ? ' p-status-label--positive' : '');
 }
 
-async function selectConversation(id) {
+async function selectConversation(id, { updateUrl = true, replace = false } = {}) {
   selectedId = id;
+  if (updateUrl) {
+    showAdminTab('conversations', { updateUrl: false });
+    setAdminUrl({ tab: 'conversations', conversation: id }, { replace });
+  }
   disconnectWs();
   showChatActive();
-  await loadConversation(id);
+  const ok = await loadConversation(id);
+  if (!ok) {
+    selectedId = null;
+    showChatEmpty();
+    if (updateUrl) setAdminUrl({ conversation: null }, { replace: true });
+    loadQueue();
+    return;
+  }
   connectWs(id);
   loadQueue();
 }
@@ -607,7 +682,7 @@ async function loadConversation(id) {
     fetch(`/api/conversations/${id}`, { credentials: 'include' }),
     fetch(`/api/conversations/${id}/messages`, { credentials: 'include' }),
   ]);
-  if (!convRes.ok) return;
+  if (!convRes.ok) return false;
   const { conversation } = await convRes.json();
   const { messages } = await msgRes.json();
   typing?.handleEvent({ type: 'typing', sender: 'participant', typing: false });
@@ -620,6 +695,7 @@ async function loadConversation(id) {
   const resolved = conversation.status === 'resolved';
   document.getElementById('admin-message-input').disabled = resolved;
   document.getElementById('resolve-btn').disabled = resolved;
+  return true;
 }
 
 function updateAdminHeader(c) {

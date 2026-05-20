@@ -14,6 +14,7 @@ import {
   setRooms,
   getAdminSettingsView,
   getAvailability,
+  resolveHelpBaseUrl,
   setSchedule,
   setWifi,
   setHelpBaseUrl,
@@ -249,16 +250,16 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
   const updated = enrichConversation(db.getConversation(req.params.id));
   broadcast(req.params.id, { type: 'message', message, conversation: updated });
   relayTyping(req.params.id, sender, false);
-  if (sender === 'participant') {
-    await notifyTelegram(
-      formatNewMessageNotification({
-        room: conversation.room,
-        participantName: conversation.participant_name,
-        body: message.body,
-        conversationId: conversation.id,
-      })
-    );
-  }
+  await notifyTelegram(
+    formatNewMessageNotification({
+      baseUrl: resolveHelpBaseUrl(req),
+      room: conversation.room,
+      conversationId: conversation.id,
+      participantName: conversation.participant_name,
+      sender,
+      body: message.body,
+    })
+  );
   res.status(201).json({ message, conversation: updated });
 });
 
