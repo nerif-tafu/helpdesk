@@ -1,0 +1,355 @@
+@mixin helpdesk-chat {
+  .helpdesk-chat-shell {
+    position: relative;
+  }
+
+  .helpdesk-chat-ended-overlay {
+    align-items: center;
+    background: $colors--theme--background-overlay;
+    border-radius: inherit;
+    display: flex;
+    inset: 0;
+    justify-content: center;
+    padding: $spv--large $sph--large;
+    position: absolute;
+    z-index: 10;
+  }
+
+  .helpdesk-chat-ended-overlay__dialog {
+    @extend %vf-has-box-shadow;
+
+    background: $colors--theme--background-default;
+    border-radius: $border-radius;
+    color: $colors--theme--text-default;
+    max-width: 24rem;
+    padding: $spv--large $sph--large;
+    text-align: center;
+    width: 100%;
+  }
+
+  .helpdesk-chat-ended-overlay__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $sph--small;
+    justify-content: center;
+    margin-top: $spv--large;
+  }
+
+  .helpdesk-chat-toolbar {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: $sph--small;
+    justify-content: space-between;
+  }
+
+  .helpdesk-chat__end-btn {
+    flex-shrink: 0;
+
+    .p-icon--close {
+      margin: 0;
+    }
+  }
+
+  .helpdesk-chat__composer {
+    align-items: center;
+    display: flex;
+    flex-direction: row;
+    gap: $sph--small;
+    margin-bottom: 0;
+
+    .p-form__control {
+      flex: 1;
+      margin-bottom: 0;
+      min-width: 0;
+    }
+  }
+
+  .helpdesk-chat {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .helpdesk-chat__messages {
+    background: $colors--theme--background-inputs;
+    border: 1px solid $colors--theme--border-default;
+    flex: 1;
+    margin-bottom: $spv--small;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: $spv--small $sph--small;
+  }
+
+  .helpdesk-chat__message {
+    margin-bottom: $spv--small;
+    max-width: 85%;
+
+    &--support {
+      margin-left: auto;
+      text-align: right;
+    }
+  }
+
+  .helpdesk-chat__bubble {
+    background: $colors--theme--background-default;
+    border: 1px solid $colors--theme--border-default;
+    display: inline-block;
+    padding: $spv--small $sph--small;
+
+    .helpdesk-chat__message--support & {
+      background: $colors--theme--background-active;
+    }
+  }
+
+  .helpdesk-chat__meta {
+    color: $colors--theme--text-muted;
+    font-size: map-get($font-sizes, small);
+    margin-bottom: $spv--x-small;
+  }
+
+  .helpdesk-chat__typing {
+    align-items: center;
+    color: $colors--theme--text-muted;
+    display: flex;
+    flex-shrink: 0;
+    font-size: map-get($font-sizes, small);
+    gap: $sph--large;
+    margin-bottom: $spv--small;
+  }
+
+  .helpdesk-chat__typing-dots {
+    display: inline-flex;
+    gap: 0.25rem;
+
+    i {
+      animation: helpdesk-typing-bounce 1.2s ease-in-out infinite;
+      background: $colors--theme--text-muted;
+      border-radius: 50%;
+      display: block;
+      height: 0.35rem;
+      width: 0.35rem;
+
+      &:nth-of-type(2) {
+        animation-delay: 0.15s;
+      }
+
+      &:nth-of-type(3) {
+        animation-delay: 0.3s;
+      }
+    }
+  }
+}
+
+@mixin helpdesk-chat-page {
+  html:has(body.helpdesk-chat-page) {
+    height: 100%;
+  }
+
+  body.helpdesk-chat-page {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  body.helpdesk-chat-page #navigation {
+    flex-shrink: 0;
+  }
+
+  body.helpdesk-chat-page #main-content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  body.helpdesk-chat-page #main-content > .p-strip {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    margin-bottom: 0;
+    min-height: 0;
+    overflow: hidden;
+    padding-bottom: max($spv--small, env(safe-area-inset-bottom, 0));
+    padding-top: $spv--small;
+  }
+
+  body.helpdesk-chat-page .u-fixed-width {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    width: 100%;
+  }
+
+  body.helpdesk-chat-page #status-banner {
+    flex-shrink: 0;
+    margin-bottom: $spv--small;
+  }
+
+  body.helpdesk-chat-page .helpdesk-chat-card {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    margin-bottom: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  body.helpdesk-chat-page .helpdesk-chat-card .p-card__inner,
+  body.helpdesk-chat-page .helpdesk-chat-card .p-card__content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  body.helpdesk-chat-page .helpdesk-chat-toolbar {
+    flex-shrink: 0;
+  }
+
+  body.helpdesk-chat-page #chat-form {
+    flex-shrink: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+}
+
+@keyframes helpdesk-typing-bounce {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+
+  30% {
+    opacity: 1;
+    transform: translateY(-0.2rem);
+  }
+}
+
+@mixin helpdesk-telegram-logs {
+  .helpdesk-telegram-logs-panel__header {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: $spv--small;
+  }
+
+  .helpdesk-telegram-logs {
+    background: $colors--theme--background-inputs;
+    border: 1px solid $colors--theme--border-default;
+    font-family: $font-monospace;
+    font-size: map-get($font-sizes, small);
+    margin: 0;
+    max-height: 16rem;
+    overflow: auto;
+    padding: $spv--small $sph--small;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+}
+
+@mixin helpdesk-admin-dashboard {
+  .helpdesk-admin-dashboard {
+    .p-tabs {
+      margin-bottom: $spv--large;
+    }
+  }
+
+  .helpdesk-admin-workspace {
+    display: grid;
+    gap: $sph--large;
+    grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
+
+    @media (width < $breakpoint-large) {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .helpdesk-admin-queue-card,
+  .helpdesk-admin-chat-card {
+    height: 100%;
+    min-height: 24rem;
+  }
+
+  .helpdesk-admin-chat-empty {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 18rem;
+    text-align: center;
+  }
+
+  .helpdesk-admin-chat-header {
+    align-items: flex-start;
+    display: flex;
+    flex-wrap: wrap;
+    gap: $sph--small;
+    justify-content: space-between;
+  }
+
+  .helpdesk-admin-chat {
+    .helpdesk-chat__messages {
+      max-height: min(50vh, 28rem);
+      min-height: 14rem;
+    }
+  }
+
+  .helpdesk-queue-btn {
+    background: transparent;
+    border: 0;
+    border-radius: $border-radius;
+    cursor: pointer;
+    display: block;
+    padding: $spv--x-small $sph--small;
+    text-align: left;
+    width: 100%;
+
+    &.is-active {
+      background: $colors--theme--background-active;
+    }
+
+    &--needs-reply {
+      background: $colors--theme--background-caution-default;
+      border-left: 3px solid $colors--theme--border-caution;
+
+      &.is-active {
+        background: $colors--theme--background-caution-active;
+      }
+    }
+  }
+
+  .helpdesk-queue-btn__room {
+    display: block;
+    font-weight: 500;
+  }
+
+  .helpdesk-queue-btn__meta {
+    display: block;
+    font-size: 0.875rem;
+  }
+
+}
+
+@mixin helpdesk-admin-queue {
+  .helpdesk-admin-queue {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .helpdesk-admin-queue__item {
+    padding: 0;
+  }
+
+  .helpdesk-queue-btn {
+    text-align: left;
+    width: 100%;
+  }
+}

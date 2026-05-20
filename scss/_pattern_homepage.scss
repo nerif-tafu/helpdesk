@@ -1,0 +1,48 @@
+// Snapcraft.io homepage hero + suru (templates/home/_featured-snaps.html)
+
+@mixin helpdesk-homepage {
+  .main {
+    background: $color-paper;
+  }
+
+  .homepage-suru-strip--mobile {
+    @media (width < $breakpoint-large) {
+      margin-bottom: 0;
+    }
+  }
+
+  .p-suru25light {
+    background-color: $color-paper;
+    background-image: url("https://assets.ubuntu.com/v1/7f34ade9-website_suru_25.jpg");
+    background-position: 0 0;
+    background-repeat: no-repeat;
+    background-size: 100%;
+    max-width: 80rem;
+    padding-top: 19%;
+  }
+
+  .helpdesk-home-search {
+    background-color: $color-x-light;
+    background-image: none;
+    box-shadow: 0 3px 3px rgba(51, 51, 51, 0.2);
+    display: block;
+
+    .p-search-box__input {
+      cursor: pointer;
+      flex: none;
+      padding-right: $sph--large;
+      position: static;
+      width: 100%;
+    }
+  }
+
+  .helpdesk-home-name {
+    margin-top: $spv--large;
+    max-width: 100%;
+  }
+
+  .helpdesk-hero-cta {
+    position: relative;
+    z-index: 3;
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "conference-helpdesk",
+  "version": "1.0.0",
+  "description": "Conference help desk with live chat, admin panel, and Telegram notifications",
+  "type": "module",
+  "scripts": {
+    "build:css": "sass scss/main.scss public/css/main.css --load-path=node_modules --style=compressed",
+    "watch:css": "sass scss/main.scss public/css/main.css --load-path=node_modules --watch --style=expanded",
+    "start": "node server/index.js",
+    "dev:server": "node --watch server/index.js",
+    "dev": "npm run build:css && concurrently -k -n css,server -c cyan,green \"npm run watch:css\" \"npm run dev:server\""
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4",
+    "vanilla-framework": "^4.51.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "sass": "^1.83.4"
+  }
+}

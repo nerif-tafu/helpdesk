@@ -1,0 +1,50 @@
+---
+description: Enforce Canonical Vanilla Framework (canonical.com / snapcraft.io patterns)
+globs: "**/*.{html,scss,css,js}"
+alwaysApply: true
+---
+
+# Vanilla Framework compliance
+
+Use [Vanilla Framework](https://vanillaframework.io/) exactly as Canonical production sites do ([canonical.com](https://github.com/canonical/canonical.com), [snapcraft.io](https://github.com/canonical/snapcraft.io)).
+
+## SCSS build (required)
+
+```scss
+// 1. Override settings BEFORE importing Vanilla
+$color-brand: #…;
+$color-accent: $color-brand;
+
+// 2. Import framework (requires --load-path=node_modules on sass CLI)
+@import "vanilla-framework";
+
+// 3. Emit CSS — full site OR cherry-picked patterns
+@include vanilla; // canonical.com & snapcraft.io default
+// OR for small surfaces: @include vf-base; @include vf-p-grid; … (see snapcraft styles-embedded.scss)
+```
+
+Build command pattern: `sass … --load-path=node_modules --style=compressed`
+
+Custom styles live in `_pattern_*.scss` partials: `@import` then `@include project-name`, using Vanilla mixins (`vf-animation`, `vf-icon-*`, `vf-theme-dark`) — never reimplement components.
+
+## HTML layout (required)
+
+- `body` → `class="l-site"` (optionally `is-paper` theme)
+- Skip link: `<a href="#main-content" class="u-off-screen">Skip to main content</a>`
+- Navigation: `header#navigation` with `p-navigation--sliding is-dark`, inner `p-navigation__row--25-75`, `p-navigation__tagged-logo`, mobile `p-navigation__toggle--open`
+- Main: `id="main-content"` wrapped in `section.p-strip` + inner `div.u-fixed-width`
+- Grid: `p-grid` / `p-grid__cell--span-*` / `p-grid__cell--small-span-4` (always set small-span for mobile)
+- Notifications: `p-notification--*` + `p-notification__content` + `u-hide` to toggle
+- Utilities: `u-fixed-width`, `u-hide`, `u-no-padding--top`, `p-heading--4` — not inline styles
+
+## Forbidden
+
+- Bootstrap, Tailwind, or other CSS frameworks
+- Inline `style=` for layout/spacing (use `p-strip`, `u-*`, `p-section--*`)
+- Overriding Vanilla component rules without a tracked Vanilla issue
+- Importing Vanilla without `--load-path=node_modules`
+
+## JS
+
+- Prefer Vanilla packaged modules (`vanilla-framework/templates/static/js/tabs.js`) for tabs/accordions
+- Navigation toggle: follow snapcraft `_header.html` + listeners pattern; do not invent new nav markup

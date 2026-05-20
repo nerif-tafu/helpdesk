@@ -1,0 +1,7 @@
+node_modules/
+.env
+data/
+public/css/main.css
+public/css/main.css.map
+*.log
+.DS_Store

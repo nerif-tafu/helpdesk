@@ -1,0 +1,43 @@
+// Conference helpdesk — Canonical Vanilla patterns (see .cursor/rules/vanilla-framework.mdc)
+
+$color-brand: #0f95a8;
+$color-accent: $color-brand;
+$color-navigation-active-bar: $color-brand;
+$color-paper: #f3f3f3;
+
+@import "vanilla-framework";
+
+@include vf-base;
+@include vf-p-buttons;
+@include vf-p-card;
+@include vf-p-forms;
+@include vf-p-grid;
+@include vf-p-notification;
+@include vf-p-strip;
+@include vf-p-search-box;
+@include vf-p-suru;
+@include vf-p-section;
+@include vf-p-navigation;
+@include vf-p-status-label;
+@include vf-p-divider;
+@include vf-p-lists;
+@include vf-p-headings;
+@include vf-u-layout;
+@include vf-u-hide;
+@include vf-u-off-screen;
+@include vf-p-tabs;
+@include vf-p-icons;
+@include vf-p-links;
+
+@import "pattern_helpdesk-chat";
+@include helpdesk-chat;
+@include helpdesk-chat-page;
+@include helpdesk-telegram-logs;
+@include helpdesk-admin-dashboard;
+@include helpdesk-admin-queue;
+
+@import "pattern_snapcraft-navigation";
+@include helpdesk-snapcraft-navigation;
+
+@import "pattern_homepage";
+@include helpdesk-homepage;
