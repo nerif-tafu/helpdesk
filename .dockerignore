@@ -1,0 +1,12 @@
+node_modules
+.git
+.github
+.env
+.env.*
+!.env.example
+data
+*.log
+.DS_Store
+public/css/main.css
+public/css/main.css.map
+.cursor

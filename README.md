@@ -22,6 +22,27 @@ npm run dev
 
 For production, use `npm run build:css && npm start`.
 
+### Docker (GHCR)
+
+Images are published to GitHub Container Registry when you push a version tag (e.g. `v1.0.0`):
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Pull and run:
+
+```bash
+docker run -d --name helpdesk -p 3000:3000 \
+  -e ADMIN_PASSWORD=your-secure-password \
+  -e SESSION_SECRET=your-session-secret \
+  -v helpdesk-data:/app/data \
+  ghcr.io/nerif-tafu/helpdesk:1.0.0
+```
+
+Replace the image tag with your release version, or use `:latest` for the most recent build. Set `packages` visibility to public in GitHub if you want anonymous pulls without logging in to `ghcr.io`.
+
 Open http://localhost:3000 for participants and http://localhost:3000/admin.html for support.
 
 ### Access from other devices (same Wi‑Fi / LAN)
