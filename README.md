@@ -44,7 +44,7 @@ The **Guides & FAQ** admin tab adds, edits, reorders, enables/disables, and dele
 Push a version tag to build an image on GHCR:
 
 ```bash
-git tag v1.4.2 && git push origin v1.4.2
+git tag v1.4.3 && git push origin v1.4.3
 ```
 
 ```bash
@@ -52,7 +52,7 @@ docker run -d -p 3000:3000 \
   -e ADMIN_PASSWORD=change-me \
   -e SESSION_SECRET=change-me \
   -v helpdesk-data:/app/data \
-  ghcr.io/nerif-tafu/helpdesk:1.4.2
+  ghcr.io/nerif-tafu/helpdesk:1.4.3
 ```
 
 ## Production

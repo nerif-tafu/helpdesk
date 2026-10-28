@@ -1052,10 +1052,11 @@ async function markResolved() {
     body: JSON.stringify({ status: 'resolved' }),
   });
   if (res.ok) {
-    const { conversation } = await res.json();
-    updateAdminHeader(conversation);
-    document.getElementById('admin-message-input').disabled = true;
-    document.getElementById('resolve-btn').disabled = true;
+    // Close the resolved chat and drop it from the open queue.
+    selectedId = null;
+    disconnectWs();
+    showChatEmpty();
+    setAdminUrl({ conversation: null }, { replace: true });
     loadQueue();
   }
 }

@@ -5,19 +5,24 @@
     overflow: hidden;
   }
 
-  .helpdesk-modal__dialog--narrow {
-    width: 100%;
+  // Below the threshold Vanilla pins the dialog with left/right insets, so only
+  // set a width once it is centred; a 100% width there overflows the viewport.
+  .helpdesk-modal__dialog--narrow,
+  .helpdesk-modal__dialog--wide {
+    overflow-wrap: anywhere;
+  }
 
+  .helpdesk-modal__dialog--narrow {
     @media (min-width: $threshold-6-12-col) {
       max-width: 32rem;
+      width: 100%;
     }
   }
 
   .helpdesk-modal__dialog--wide {
-    width: 100%;
-
     @media (min-width: $threshold-6-12-col) {
       max-width: 48rem;
+      width: 100%;
     }
   }
 
