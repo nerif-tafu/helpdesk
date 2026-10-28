@@ -437,7 +437,7 @@ function slugify(value) {
 function updateSlugHelp() {
   const help = document.getElementById('guide-slug-help');
   const slug = document.getElementById('guide-slug')?.value.trim();
-  if (help) help.textContent = slug ? `Page address: /guides/${slug}.html` : '';
+  if (help) help.textContent = slug ? `Page address: /guides/${slug}` : '';
 }
 
 async function loadGuides() {
@@ -462,7 +462,7 @@ function renderGuides() {
     tr.innerHTML = `
       <td>
         <span class="helpdesk-admin-guides__title">${escapeHtml(guide.title)}</span>
-        <a class="helpdesk-admin-guides__meta" href="/guides/${encodeURIComponent(guide.slug)}.html" target="_blank" rel="noopener">/guides/${escapeHtml(guide.slug)}.html</a>
+        <a class="helpdesk-admin-guides__meta" href="/guides/${encodeURIComponent(guide.slug)}" target="_blank" rel="noopener">/guides/${escapeHtml(guide.slug)}</a>
       </td>
       <td>${status}</td>
       <td class="helpdesk-admin-guides__actions-cell">

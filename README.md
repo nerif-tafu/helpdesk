@@ -1,6 +1,6 @@
 # Event Help Desk
 
-Live chat for conference rooms. Participants use `/`, support uses `/admin.html`.
+Live chat for conference rooms. Participants use `/`, support uses `/admin`.
 
 ## Run locally
 
@@ -13,7 +13,7 @@ npm run dev
 ```
 
 - http://localhost:3000 — participants  
-- http://localhost:3000/admin.html — support (password from `.env`)
+- http://localhost:3000/admin — support (password from `.env`)
 
 Rooms, WiFi, hours, Telegram, Ubuntu SSO, printouts, and Guides & FAQ are configured in the admin UI. Data is stored in `data/helpdesk.json`.
 
@@ -23,7 +23,7 @@ Turn on **Settings → Ubuntu SSO** to require participants to sign in at [login
 
 ## Guides & FAQ
 
-The **Guides & FAQ** admin tab adds, edits, reorders, enables/disables, and deletes the cards on the home page. Each guide is served at `/guides/<slug>.html`. Content uses a small Markdown subset: `## Heading`, `1. Step`, `- Bullet`, `**bold**`, and `[link](https://…)`.
+The **Guides & FAQ** admin tab adds, edits, reorders, enables/disables, and deletes the cards on the home page. Each guide is served at `/guides/<slug>`. Content uses a small Markdown subset: `## Heading`, `1. Step`, `- Bullet`, `**bold**`, and `[link](https://…)`.
 
 ## Environment
 
@@ -40,7 +40,7 @@ The **Guides & FAQ** admin tab adds, edits, reorders, enables/disables, and dele
 Push a version tag to build an image on GHCR:
 
 ```bash
-git tag v1.4.0 && git push origin v1.4.0
+git tag v1.4.1 && git push origin v1.4.1
 ```
 
 ```bash
@@ -48,7 +48,7 @@ docker run -d -p 3000:3000 \
   -e ADMIN_PASSWORD=change-me \
   -e SESSION_SECRET=change-me \
   -v helpdesk-data:/app/data \
-  ghcr.io/nerif-tafu/helpdesk:1.4.0
+  ghcr.io/nerif-tafu/helpdesk:1.4.1
 ```
 
 ## Production

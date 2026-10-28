@@ -68,7 +68,24 @@ if (process.env.TRUST_PROXY) {
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 app.get('/favicon.ico', (_req, res) => res.redirect(301, '/favicon.png'));
-app.use(express.static(path.join(__dirname, '..', 'public')));
+const publicDir = path.join(__dirname, '..', 'public');
+
+// Clean URLs: /admin.html → /admin, /index.html → /, /chat.html?id=X → /chat/X.
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const match = /^(.*)\.html$/.exec(req.path);
+  if (!match) return next();
+  const params = new URLSearchParams(req.query);
+  let target = match[1] === '/index' ? '/' : match[1];
+  if (target === '/chat' && params.get('id')) {
+    target = `/chat/${encodeURIComponent(params.get('id'))}`;
+    params.delete('id');
+  }
+  const qs = params.toString();
+  res.redirect(301, qs ? `${target}?${qs}` : target);
+});
+
+app.use(express.static(publicDir, { extensions: ['html'] }));
 
 const sessions = new Map();
 
@@ -286,7 +303,13 @@ app.get('/api/guides', (_req, res) => {
   res.json({ guides: getGuides().filter((g) => g.enabled).map(toGuideCard) });
 });
 
-app.get(['/guides/:slug.html', '/guides/:slug'], (req, res) => {
+// Unknown chat IDs (including links from the previous help desk site) go home.
+app.get('/chat/:id', (req, res) => {
+  if (!db.getConversation(req.params.id)) return res.redirect('/');
+  res.sendFile(path.join(publicDir, 'chat.html'));
+});
+
+app.get('/guides/:slug', (req, res) => {
   const guide = getGuideBySlug(req.params.slug);
   if (!guide || (!guide.enabled && !isAdmin(req))) {
     return res.status(404).type('html').send(renderGuideNotFoundPage());
@@ -605,7 +628,7 @@ server.listen(PORT, HOST, () => {
   console.log(`Help desk listening on ${HOST}:${PORT}`);
   for (const url of listAccessUrls(PORT)) {
     console.log(`  ${url}`);
-    console.log(`  ${url}/admin.html`);
+    console.log(`  ${url}/admin`);
   }
   const { telegram } = getAdminSettingsView();
   if (!telegram.tokenSet || !telegram.chatId) {

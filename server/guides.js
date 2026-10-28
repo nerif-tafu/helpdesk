@@ -172,7 +172,7 @@ export function toGuideCard(guide) {
     title: guide.title,
     excerpt: guide.excerpt,
     imageUrl: guide.imageUrl,
-    url: `/guides/${guide.slug}.html`,
+    url: `/guides/${guide.slug}`,
   };
 }
 
@@ -276,7 +276,7 @@ const NAV = `    <header id="navigation" class="p-navigation--sliding is-dark">
             <ul class="p-navigation__items helpdesk-nav-primary" role="menu"></ul>
             <ul class="p-navigation__items helpdesk-nav-secondary" role="menu">
               <li class="p-navigation__item" role="menuitem">
-                <a class="p-navigation__link" href="/admin.html">
+                <a class="p-navigation__link" href="/admin">
                   Support login <i class="p-icon--user is-light"></i>
                 </a>
               </li>

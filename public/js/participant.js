@@ -67,7 +67,7 @@ export async function initHome() {
       if (check.ok) {
         const { conversation } = await check.json();
         if (conversation.status !== 'resolved') {
-          window.location.href = `/chat.html?id=${existing}`;
+          window.location.href = `/chat/${encodeURIComponent(existing)}`;
           return;
         }
         localStorage.removeItem(STORAGE_KEY);
@@ -97,7 +97,7 @@ export async function initHome() {
       }
       const { conversation } = await createRes.json();
       localStorage.setItem(STORAGE_KEY, conversation.id);
-      window.location.href = `/chat.html?id=${conversation.id}`;
+      window.location.href = `/chat/${encodeURIComponent(conversation.id)}`;
     } catch (err) {
       errorText.textContent = err.message;
       errorBox.classList.remove('u-hide');
@@ -180,11 +180,16 @@ async function loadGuideCards() {
 }
 
 export function initChat() {
-  const params = new URLSearchParams(window.location.search);
-  const conversationId = params.get('id') || localStorage.getItem(STORAGE_KEY);
+  const pathId = /^\/chat\/([^/]+)$/.exec(window.location.pathname)?.[1];
+  const conversationId = pathId
+    ? decodeURIComponent(pathId)
+    : localStorage.getItem(STORAGE_KEY);
   if (!conversationId) {
     window.location.href = '/';
     return;
+  }
+  if (!pathId) {
+    history.replaceState(null, '', `/chat/${encodeURIComponent(conversationId)}`);
   }
   localStorage.setItem(STORAGE_KEY, conversationId);
 

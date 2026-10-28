@@ -107,7 +107,7 @@ export async function sendTelegramTestMessage(overrides = {}) {
 export function buildAdminChatUrl(baseUrl, conversationId) {
   const root = String(baseUrl || '').trim().replace(/\/$/, '');
   const id = encodeURIComponent(conversationId);
-  return `${root}/admin.html?tab=conversations&conversation=${id}`;
+  return `${root}/admin?tab=conversations&conversation=${id}`;
 }
 
 /**
