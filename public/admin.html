@@ -547,6 +547,32 @@
                           placeholder="-1001234567890"
                         />
                       </div>
+                      <div class="p-form__group">
+                        <label class="p-switch">
+                          <input
+                            type="checkbox"
+                            class="p-switch__input"
+                            role="switch"
+                            id="telegram-proxy-enabled"
+                          />
+                          <span class="p-switch__slider"></span>
+                          <span class="p-switch__label">Send through a proxy</span>
+                        </label>
+                      </div>
+                      <div class="p-form__group" id="telegram-proxy-fields">
+                        <label for="telegram-proxy-url" class="p-form__label">Proxy URL</label>
+                        <input
+                          type="text"
+                          id="telegram-proxy-url"
+                          class="p-form__control"
+                          autocomplete="off"
+                          placeholder="http://squid.internal:3128"
+                        />
+                        <p class="p-form__help">
+                          Only Telegram requests use this proxy. Use it when the server cannot reach
+                          api.telegram.org directly.
+                        </p>
+                      </div>
                       <div class="p-form__group p-form__group--inline">
                         <button type="submit" class="p-button--positive">Save Telegram</button>
                         <button type="button" class="p-button" id="telegram-test-btn">

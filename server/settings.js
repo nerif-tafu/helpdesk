@@ -6,6 +6,7 @@ const DEFAULT_ROOMS = ['Main Hall', 'Workshop A', 'Workshop B'];
 let rooms = [...DEFAULT_ROOMS];
 let telegramBotToken = '';
 let telegramChatId = '';
+let telegramProxy = { enabled: false, url: '' };
 
 function getDefaultTimeZone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -205,6 +206,13 @@ function applyStoredSettings(stored) {
   if (stored.telegram_chat_id != null) {
     telegramChatId = String(stored.telegram_chat_id);
   }
+  if (stored.telegram_proxy && typeof stored.telegram_proxy === 'object') {
+    try {
+      telegramProxy = normalizeTelegramProxy(stored.telegram_proxy);
+    } catch {
+      telegramProxy = { enabled: false, url: '' };
+    }
+  }
 
   const storedSchedule = stored.schedule ? parseSchedule(stored.schedule) : null;
   if (storedSchedule) {
@@ -251,6 +259,7 @@ function persistAllSettings() {
     guides,
     telegram_bot_token: telegramBotToken,
     telegram_chat_id: telegramChatId,
+    telegram_proxy: telegramProxy,
   });
 }
 
@@ -316,14 +325,39 @@ export function setRooms(list) {
   return rooms;
 }
 
+/** Validate a Telegram proxy setting: { enabled, url } with an http(s) proxy URL. */
+export function normalizeTelegramProxy(input) {
+  if (!input || typeof input !== 'object') throw new Error('Proxy must be an object');
+  const enabled = input.enabled === true;
+  const url = String(input.url ?? '').trim();
+  if (url) {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error('Proxy URL must look like http://squid.internal:3128');
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) {
+      throw new Error('Proxy URL must start with http:// or https://');
+    }
+  }
+  if (enabled && !url) throw new Error('Enter a proxy URL or turn the proxy off');
+  return { enabled, url };
+}
+
 export function getTelegramConfig() {
   return {
     token: telegramBotToken,
     chatId: telegramChatId,
+    proxy: { ...telegramProxy },
   };
 }
 
-export function updateTelegram({ botToken, chatId }) {
+export function updateTelegram({ botToken, chatId, proxy }) {
+  if (proxy !== undefined) {
+    telegramProxy = normalizeTelegramProxy(proxy);
+    db.patchSettings({ telegram_proxy: telegramProxy });
+  }
   if (botToken !== undefined) {
     telegramBotToken = String(botToken).trim();
     db.patchSettings({ telegram_bot_token: telegramBotToken });
@@ -436,6 +470,7 @@ export function getAdminSettingsView() {
     telegram: {
       tokenSet: Boolean(token),
       chatId,
+      proxy: { ...telegramProxy },
     },
   };
 }

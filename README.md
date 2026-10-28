@@ -21,6 +21,10 @@ Rooms, WiFi, hours, Telegram, Ubuntu SSO, printouts, and Guides & FAQ are config
 
 Turn on **Settings → Ubuntu SSO** to require participants to sign in at [login.ubuntu.com](https://login.ubuntu.com/) (OpenID 2.0) before starting or continuing a chat. Their name and email are shown to support. The callback is `/auth/sso/callback` on the URL participants use; behind an HTTPS reverse proxy set `TRUST_PROXY` so the return URL uses the public protocol and host. SSO sessions are kept in memory, so participants sign in again after a restart.
 
+## Telegram
+
+Set the bot token and chat ID in **Settings → Telegram notifications**. If the server cannot reach `api.telegram.org` directly, turn on **Send through a proxy** and enter the proxy URL (for example `http://squid.internal:3128`); only Telegram requests use it. **View logs** shows each send attempt with its route, timing, and the underlying error.
+
 ## Guides & FAQ
 
 The **Guides & FAQ** admin tab adds, edits, reorders, enables/disables, and deletes the cards on the home page. Each guide is served at `/guides/<slug>`. Content uses a small Markdown subset: `## Heading`, `1. Step`, `- Bullet`, `**bold**`, and `[link](https://…)`.
@@ -40,7 +44,7 @@ The **Guides & FAQ** admin tab adds, edits, reorders, enables/disables, and dele
 Push a version tag to build an image on GHCR:
 
 ```bash
-git tag v1.4.1 && git push origin v1.4.1
+git tag v1.4.2 && git push origin v1.4.2
 ```
 
 ```bash
@@ -48,7 +52,7 @@ docker run -d -p 3000:3000 \
   -e ADMIN_PASSWORD=change-me \
   -e SESSION_SECRET=change-me \
   -v helpdesk-data:/app/data \
-  ghcr.io/nerif-tafu/helpdesk:1.4.1
+  ghcr.io/nerif-tafu/helpdesk:1.4.2
 ```
 
 ## Production

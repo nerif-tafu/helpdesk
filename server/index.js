@@ -27,6 +27,7 @@ import {
   deleteGuide,
   moveGuide,
   updateTelegram,
+  normalizeTelegramProxy,
   exportHelpdeskData,
   importHelpdeskData,
 } from './settings.js';
@@ -469,10 +470,17 @@ app.get('/api/admin/telegram/logs', requireAdmin, (_req, res) => {
 });
 
 app.post('/api/admin/telegram/test', requireAdmin, async (req, res) => {
-  const { telegramBotToken, telegramChatId } = req.body || {};
+  const { telegramBotToken, telegramChatId, telegramProxy } = req.body || {};
   const overrides = {};
   if (telegramBotToken !== undefined) overrides.token = telegramBotToken;
   if (telegramChatId !== undefined) overrides.chatId = telegramChatId;
+  if (telegramProxy !== undefined) {
+    try {
+      overrides.proxy = normalizeTelegramProxy(telegramProxy);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+  }
   const result = await sendTelegramTestMessage(overrides);
   if (result.ok) return res.json({ ok: true });
   res.status(400).json({ error: result.error || 'Test message failed' });
@@ -570,6 +578,7 @@ app.put('/api/admin/settings', requireAdmin, (req, res) => {
     schedule: scheduleBody,
     telegramBotToken,
     telegramChatId,
+    telegramProxy,
     wifi: wifiBody,
     helpBaseUrl,
     ssoRequired,
@@ -599,10 +608,15 @@ app.put('/api/admin/settings', requireAdmin, (req, res) => {
       }
       setSchedule(scheduleBody);
     }
-    if (telegramBotToken !== undefined || telegramChatId !== undefined) {
+    if (
+      telegramBotToken !== undefined ||
+      telegramChatId !== undefined ||
+      telegramProxy !== undefined
+    ) {
       updateTelegram({
         botToken: telegramBotToken,
         chatId: telegramChatId,
+        proxy: telegramProxy,
       });
     }
     res.json(getAdminSettingsView());

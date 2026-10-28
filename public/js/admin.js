@@ -257,6 +257,9 @@ function initSettingsForms() {
 
   document.getElementById('sso-required')?.addEventListener('change', saveSsoSetting);
 
+  document
+    .getElementById('telegram-proxy-enabled')
+    ?.addEventListener('change', toggleTelegramProxyFields);
   document.getElementById('telegram-test-btn')?.addEventListener('click', sendTelegramTest);
   document.getElementById('telegram-logs-btn')?.addEventListener('click', toggleTelegramLogs);
   document.getElementById('telegram-logs-refresh')?.addEventListener('click', loadTelegramLogs);
@@ -272,7 +275,7 @@ function initSettingsForms() {
     hideNotice('telegram-saved', 'telegram-error');
     const tokenInput = document.getElementById('telegram-bot-token');
     const chatInput = document.getElementById('telegram-chat-id');
-    const body = { telegramChatId: chatInput.value.trim() };
+    const body = { telegramChatId: chatInput.value.trim(), telegramProxy: collectTelegramProxy() };
     if (tokenInput.value.trim()) {
       body.telegramBotToken = tokenInput.value.trim();
     }
@@ -721,6 +724,7 @@ async function sendTelegramTest() {
   const body = {};
   if (tokenInput?.value.trim()) body.telegramBotToken = tokenInput.value.trim();
   if (chatInput?.value.trim()) body.telegramChatId = chatInput.value.trim();
+  body.telegramProxy = collectTelegramProxy();
   btn.disabled = true;
   const res = await fetch('/api/admin/telegram/test', {
     method: 'POST',
@@ -760,19 +764,41 @@ async function loadTelegramLogs() {
   }
   const { logs } = await res.json();
   if (!logs.length) {
-    pre.textContent = 'No log entries yet. Logs appear when participant messages trigger notifications.';
+    pre.textContent = 'No log entries yet. Logs appear when participant messages trigger notifications or you send a test message.';
     return;
   }
   pre.textContent = logs
     .map((entry) => {
       const time = new Date(entry.at).toLocaleString();
-      const detail = entry.detail ? `\n  ${entry.detail}` : '';
+      const detail = entry.detail
+        ? `\n${entry.detail
+            .split('\n')
+            .map((line) => `  ${line}`)
+            .join('\n')}`
+        : '';
       return `[${time}] ${entry.level.toUpperCase()}: ${entry.message}${detail}`;
     })
     .join('\n\n');
 }
 
+function collectTelegramProxy() {
+  return {
+    enabled: Boolean(document.getElementById('telegram-proxy-enabled')?.checked),
+    url: document.getElementById('telegram-proxy-url')?.value.trim() ?? '',
+  };
+}
+
+function toggleTelegramProxyFields() {
+  const enabled = Boolean(document.getElementById('telegram-proxy-enabled')?.checked);
+  document.getElementById('telegram-proxy-fields')?.classList.toggle('u-hide', !enabled);
+}
+
 function applyTelegramSettings(telegram) {
+  const proxyEnabled = document.getElementById('telegram-proxy-enabled');
+  const proxyUrl = document.getElementById('telegram-proxy-url');
+  if (proxyEnabled) proxyEnabled.checked = Boolean(telegram.proxy?.enabled);
+  if (proxyUrl) proxyUrl.value = telegram.proxy?.url || '';
+  toggleTelegramProxyFields();
   const chatInput = document.getElementById('telegram-chat-id');
   const hint = document.getElementById('telegram-token-hint');
   if (chatInput) chatInput.value = telegram.chatId || '';
