@@ -1,4 +1,5 @@
 import * as db from './db.js';
+import { DEFAULT_GUIDES, normalizeGuide, normalizeGuides } from './guides.js';
 
 const DEFAULT_ROOMS = ['Main Hall', 'Workshop A', 'Workshop B'];
 
@@ -21,6 +22,8 @@ const DEFAULT_SCHEDULE = {
 let schedule = { ...DEFAULT_SCHEDULE };
 let wifi = { enabled: true, ssid: '', password: '' };
 let helpBaseUrl = '';
+let ssoRequired = false;
+let guides = DEFAULT_GUIDES.map((g) => ({ ...g }));
 
 function isValidTimeZone(timeZone) {
   try {
@@ -220,6 +223,22 @@ function applyStoredSettings(stored) {
   if (stored.help_base_url != null) {
     helpBaseUrl = String(stored.help_base_url).trim().replace(/\/$/, '');
   }
+
+  ssoRequired = stored.sso_required === true;
+
+  let storedGuides = null;
+  if (Array.isArray(stored.guides)) {
+    try {
+      storedGuides = normalizeGuides(stored.guides);
+    } catch {
+      // fall back to the current guides if stored data is invalid
+    }
+  }
+  if (storedGuides) {
+    guides = storedGuides;
+  } else {
+    db.patchSettings({ guides });
+  }
 }
 
 function persistAllSettings() {
@@ -228,6 +247,8 @@ function persistAllSettings() {
     schedule,
     wifi,
     help_base_url: helpBaseUrl,
+    sso_required: ssoRequired,
+    guides,
     telegram_bot_token: telegramBotToken,
     telegram_chat_id: telegramChatId,
   });
@@ -340,6 +361,60 @@ export function setHelpBaseUrl(url) {
   return helpBaseUrl;
 }
 
+export function getSsoRequired() {
+  return ssoRequired;
+}
+
+export function setSsoRequired(value) {
+  if (typeof value !== 'boolean') throw new Error('ssoRequired must be true or false');
+  ssoRequired = value;
+  db.patchSettings({ sso_required: ssoRequired });
+  return ssoRequired;
+}
+
+export function getGuides() {
+  return guides.map((g) => ({ ...g }));
+}
+
+export function getGuideBySlug(slug) {
+  const guide = guides.find((g) => g.slug === slug);
+  return guide ? { ...guide } : null;
+}
+
+function saveGuides(next) {
+  guides = normalizeGuides(next);
+  db.patchSettings({ guides });
+  return getGuides();
+}
+
+export function createGuide(input) {
+  const guide = normalizeGuide({ ...input, id: undefined });
+  return saveGuides([...guides, guide]).find((g) => g.id === guide.id);
+}
+
+export function updateGuide(id, input) {
+  const existing = guides.find((g) => g.id === id);
+  if (!existing) return null;
+  const updated = normalizeGuide({ ...existing, ...input, id });
+  return saveGuides(guides.map((g) => (g.id === id ? updated : g))).find((g) => g.id === id);
+}
+
+export function deleteGuide(id) {
+  if (!guides.some((g) => g.id === id)) return false;
+  saveGuides(guides.filter((g) => g.id !== id));
+  return true;
+}
+
+export function moveGuide(id, direction) {
+  const index = guides.findIndex((g) => g.id === id);
+  if (index === -1) return null;
+  const target = direction === 'up' ? index - 1 : index + 1;
+  if (target < 0 || target >= guides.length) return getGuides();
+  const next = [...guides];
+  [next[index], next[target]] = [next[target], next[index]];
+  return saveGuides(next);
+}
+
 export function resolveHelpBaseUrl(req) {
   if (helpBaseUrl) return helpBaseUrl;
   if (req) {
@@ -357,6 +432,7 @@ export function getAdminSettingsView() {
     schedule: getSchedule(),
     wifi: getWifi(),
     helpBaseUrl,
+    ssoRequired,
     telegram: {
       tokenSet: Boolean(token),
       chatId,

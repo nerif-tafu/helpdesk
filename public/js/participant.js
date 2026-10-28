@@ -1,4 +1,5 @@
 import { bindTyping } from './typing.js';
+import { confirmModal, hideModal, showModal } from './modal.js';
 
 const STORAGE_KEY = 'helpdesk_conversation_id';
 
@@ -12,9 +13,12 @@ export async function initHome() {
   const closedBox = document.getElementById('helpdesk-closed');
   const closedMessage = document.getElementById('helpdesk-closed-message');
 
-  const [roomsRes, availRes] = await Promise.all([
+  void loadGuideCards();
+
+  const [roomsRes, availRes, ssoRes] = await Promise.all([
     fetch('/api/rooms'),
     fetch('/api/availability'),
+    fetch('/api/sso/me'),
   ]);
   const { rooms } = await roomsRes.json();
   for (const room of rooms) {
@@ -47,8 +51,17 @@ export async function initHome() {
     }
   }
 
+  const sso = ssoRes.ok ? await ssoRes.json() : { ssoRequired: false, user: null };
+  const needsSignIn = sso.ssoRequired && !sso.user;
+  applySsoState(sso);
+  if (needsSignIn) {
+    roomSelect.disabled = true;
+    nameInput.disabled = true;
+    openBtn.disabled = true;
+  }
+
   const existing = localStorage.getItem(STORAGE_KEY);
-  if (existing) {
+  if (existing && !needsSignIn) {
     try {
       const check = await fetch(`/api/conversations/${existing}`);
       if (check.ok) {
@@ -66,7 +79,7 @@ export async function initHome() {
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (!helpdeskOpen) return;
+    if (!helpdeskOpen || needsSignIn) return;
     errorBox.classList.add('u-hide');
     const btn = document.getElementById('open-chat-btn');
     btn.disabled = true;
@@ -91,6 +104,79 @@ export async function initHome() {
       btn.disabled = false;
     }
   });
+}
+
+function applySsoState({ ssoRequired, user }) {
+  const params = new URLSearchParams(window.location.search);
+  const ssoError = params.get('sso_error');
+  if (ssoError) {
+    document.getElementById('sso-error-text').textContent = ssoError;
+    document.getElementById('sso-error')?.classList.remove('u-hide');
+    params.delete('sso_error');
+    const qs = params.toString();
+    history.replaceState(null, '', qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+  }
+
+  const signInBox = document.getElementById('sso-signin');
+  const signedIn = document.getElementById('sso-signed-in');
+  const signInBtn = document.getElementById('sso-signin-btn');
+  if (signInBtn) {
+    signInBtn.href = `/auth/sso/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+  }
+  signInBox?.classList.toggle('u-hide', !ssoRequired || Boolean(user));
+  signedIn?.classList.toggle('u-hide', !user);
+  if (user) {
+    document.getElementById('sso-user-name').textContent = user.email
+      ? `${user.name} (${user.email})`
+      : user.name;
+    const nameInput = document.getElementById('participant-name');
+    if (nameInput && !nameInput.value) nameInput.placeholder = user.name;
+  }
+  document.getElementById('sso-signout-btn')?.addEventListener('click', async () => {
+    await fetch('/auth/sso/logout', { method: 'POST' });
+    window.location.reload();
+  });
+}
+
+async function loadGuideCards() {
+  const section = document.getElementById('guides-section');
+  const row = document.getElementById('guides-row');
+  if (!section || !row) return;
+  let guides = [];
+  try {
+    const res = await fetch('/api/guides');
+    if (res.ok) guides = (await res.json()).guides;
+  } catch {
+    return;
+  }
+  row.innerHTML = '';
+  for (const guide of guides) {
+    const url = escapeHtml(guide.url);
+    const col = document.createElement('div');
+    col.className = 'p-equal-height-row__col is-borderless p-homepage-blog-card';
+    col.innerHTML = `
+      <div class="p-equal-height-row__item">
+        ${
+          guide.imageUrl
+            ? `<div class="article-image p-image-container p-image-container--16-9 is-cover">
+                <a href="${url}" tabindex="-1" aria-hidden="true">
+                  <img src="${escapeHtml(guide.imageUrl)}" alt="" loading="lazy" width="924" height="520" class="p-image-container__image" />
+                </a>
+              </div>`
+            : ''
+        }
+      </div>
+      <div class="p-equal-height-row__item">
+        <a class="article-link" href="${url}">
+          <h3 class="p-heading--5 article-title">${escapeHtml(guide.title)}</h3>
+        </a>
+      </div>
+      <div class="p-equal-height-row__item">
+        <div class="article-excerpt"><p>${escapeHtml(guide.excerpt)}</p></div>
+      </div>`;
+    row.appendChild(col);
+  }
+  section.classList.toggle('u-hide', guides.length === 0);
 }
 
 export function initChat() {
@@ -129,6 +215,16 @@ export function initChat() {
       fetch(`/api/conversations/${conversationId}`),
       fetch(`/api/conversations/${conversationId}/messages`),
     ]);
+    if (convRes.status === 401) {
+      window.location.href = `/auth/sso/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+      return false;
+    }
+    if (convRes.status === 403) {
+      // Signed in with a different Ubuntu One account than the one that started this chat.
+      localStorage.removeItem(STORAGE_KEY);
+      window.location.href = '/';
+      return false;
+    }
     if (!convRes.ok) {
       if (redirectIfMissing) {
         localStorage.removeItem(STORAGE_KEY);
@@ -210,14 +306,12 @@ export function initChat() {
 
   function showEndedModal() {
     if (!chatEndedModal || endedModalDismissed) return;
-    chatEndedModal.classList.remove('u-hide');
-    chatEndedModal.setAttribute('aria-hidden', 'false');
+    showModal(chatEndedModal, { onDismiss: hideEndedModal, initialFocus: '#chat-ended-new' });
   }
 
   function hideEndedModal() {
     endedModalDismissed = true;
-    chatEndedModal?.classList.add('u-hide');
-    chatEndedModal?.setAttribute('aria-hidden', 'true');
+    hideModal(chatEndedModal);
   }
 
   function updateUi() {
@@ -264,20 +358,20 @@ export function initChat() {
     if (!input.disabled) typing.onInput();
   });
 
-  document.getElementById('chat-ended-dismiss')?.addEventListener('click', hideEndedModal);
   document.getElementById('chat-ended-new')?.addEventListener('click', () => {
     localStorage.removeItem(STORAGE_KEY);
   });
 
   endChatBtn?.addEventListener('click', async () => {
     if (!conversation || conversation.status === 'resolved') return;
-    if (
-      !confirm(
-        'End this chat? Support will no longer see it as open. You can start a new request from the home page.'
-      )
-    ) {
-      return;
-    }
+    const confirmed = await confirmModal({
+      title: 'End this chat?',
+      message:
+        'Support will no longer see it as open. You can start a new request from the home page.',
+      confirmLabel: 'End chat',
+      danger: true,
+    });
+    if (!confirmed) return;
     endChatBtn.disabled = true;
     const res = await fetch(`/api/conversations/${conversationId}/end`, { method: 'POST' });
     if (res.ok) {

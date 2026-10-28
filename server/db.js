@@ -64,13 +64,21 @@ function id() {
   return crypto.randomUUID();
 }
 
-export function createConversation(room, participantName) {
+export function createConversation(room, participantName, ssoUser = null) {
   const conversationId = id();
   const timestamp = now();
   const conversation = {
     id: conversationId,
     room,
     participant_name: participantName || null,
+    participant_sso: ssoUser
+      ? {
+          id: ssoUser.id,
+          nickname: ssoUser.nickname || null,
+          email: ssoUser.email || null,
+          fullname: ssoUser.fullname || null,
+        }
+      : null,
     status: 'waiting',
     created_at: timestamp,
     updated_at: timestamp,

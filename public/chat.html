@@ -91,32 +91,41 @@
                   </form>
                 </div>
               </div>
-
-              <div
-                id="chat-ended-modal"
-                class="helpdesk-chat-ended-overlay u-hide"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="chat-ended-title"
-                aria-hidden="true"
-              >
-                <div class="helpdesk-chat-ended-overlay__dialog">
-                  <h2 class="p-heading--4" id="chat-ended-title">This chat has ended</h2>
-                  <p class="u-sv1">
-                    Your conversation with support is closed. You can start a new chat anytime if
-                    you need more help.
-                  </p>
-                  <div class="helpdesk-chat-ended-overlay__actions">
-                    <a href="/" class="p-button--positive" id="chat-ended-new">Start a new chat</a>
-                    <button type="button" class="p-button" id="chat-ended-dismiss">
-                      View conversation
-                    </button>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </div>
+      </section>
+    </div>
+
+    <div id="chat-ended-modal" class="p-modal u-hide" aria-hidden="true">
+      <section
+        class="p-modal__dialog helpdesk-modal__dialog--narrow"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="chat-ended-title"
+        aria-describedby="chat-ended-description"
+      >
+        <header class="p-modal__header">
+          <h2 class="p-modal__title" id="chat-ended-title">This chat has ended</h2>
+          <button
+            type="button"
+            class="p-modal__close"
+            aria-label="Close dialog"
+            aria-controls="chat-ended-modal"
+          >
+            Close
+          </button>
+        </header>
+        <p id="chat-ended-description">
+          Your conversation with support is closed. You can start a new chat anytime if you need
+          more help.
+        </p>
+        <footer class="p-modal__footer helpdesk-modal__footer-actions">
+          <button type="button" class="p-button" aria-controls="chat-ended-modal">
+            View conversation
+          </button>
+          <a href="/" class="p-button--positive" id="chat-ended-new">Start a new chat</a>
+        </footer>
       </section>
     </div>
 

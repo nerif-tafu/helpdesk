@@ -30,6 +30,8 @@ $color-paper: #f3f3f3;
 @include vf-p-links;
 @include vf-p-equal-height-row;
 @include vf-p-image;
+@include vf-p-modal;
+@include vf-p-switch;
 
 @import "pattern_helpdesk-chat";
 @include helpdesk-chat;
@@ -37,6 +39,9 @@ $color-paper: #f3f3f3;
 @include helpdesk-telegram-logs;
 @include helpdesk-admin-dashboard;
 @include helpdesk-admin-queue;
+
+@import "pattern_helpdesk-modal";
+@include helpdesk-modal;
 
 @import "pattern_snapcraft-navigation";
 @include helpdesk-snapcraft-navigation;

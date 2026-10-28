@@ -1,4 +1,5 @@
 import { bindTyping } from './typing.js';
+import { confirmModal, hideModal, showModal } from './modal.js';
 
 let selectedId = null;
 let ws = null;
@@ -8,6 +9,7 @@ let typing = null;
 const ADMIN_TABS = [
   { key: 'conversations', btn: 'tab-conversations-btn', panel: 'tab-conversations', onShow: null },
   { key: 'rooms', btn: 'tab-rooms-btn', panel: 'tab-rooms', onShow: loadSettings },
+  { key: 'guides', btn: 'tab-guides-btn', panel: 'tab-guides', onShow: loadGuides },
   { key: 'settings', btn: 'tab-settings-btn', panel: 'tab-settings', onShow: loadSettings },
 ];
 
@@ -55,6 +57,7 @@ export async function initAdmin() {
   document.getElementById('resolve-btn').addEventListener('click', markResolved);
   initTabs();
   initSettingsForms();
+  initGuides();
 
   function showLogin() {
     loginSection.classList.remove('u-hide');
@@ -252,6 +255,8 @@ function initSettingsForms() {
     showError('schedule-error', 'schedule-error-text', err.error || 'Failed to save hours');
   });
 
+  document.getElementById('sso-required')?.addEventListener('change', saveSsoSetting);
+
   document.getElementById('telegram-test-btn')?.addEventListener('click', sendTelegramTest);
   document.getElementById('telegram-logs-btn')?.addEventListener('click', toggleTelegramLogs);
   document.getElementById('telegram-logs-refresh')?.addEventListener('click', loadTelegramLogs);
@@ -303,13 +308,13 @@ async function importHelpdeskData(e) {
   const settingsOnly =
     document.querySelector('input[name="data-import-mode"]:checked')?.value === 'settings';
   const label = settingsOnly ? 'settings only' : 'all data';
-  if (
-    !window.confirm(
-      `Import ${label} from "${file.name}"? This will overwrite existing ${label}.`
-    )
-  ) {
-    return;
-  }
+  const confirmed = await confirmModal({
+    title: `Import ${label}?`,
+    message: `Importing "${file.name}" will overwrite existing ${label}.`,
+    confirmLabel: 'Import',
+    danger: true,
+  });
+  if (!confirmed) return;
   let data;
   try {
     data = JSON.parse(await file.text());
@@ -330,7 +335,9 @@ async function importHelpdeskData(e) {
     applyScheduleSettings(view.schedule);
     applyWifiSettings(view.wifi);
     applyHelpUrlSettings(view.helpBaseUrl);
+    applySsoSettings(view.ssoRequired);
     applyTelegramSettings(view.telegram);
+    loadGuides();
     fileInput.value = '';
     showNotice('data-import-saved');
     return;
@@ -348,7 +355,252 @@ async function loadSettings() {
   applyScheduleSettings(data.schedule);
   applyWifiSettings(data.wifi);
   applyHelpUrlSettings(data.helpBaseUrl);
+  applySsoSettings(data.ssoRequired);
   applyTelegramSettings(data.telegram);
+}
+
+function applySsoSettings(required) {
+  const input = document.getElementById('sso-required');
+  if (input) input.checked = Boolean(required);
+}
+
+async function saveSsoSetting(e) {
+  const input = e.currentTarget;
+  const required = input.checked;
+  hideNotice('sso-saved', 'sso-error');
+  if (required) {
+    const confirmed = await confirmModal({
+      title: 'Require Ubuntu SSO?',
+      message:
+        'Participants will need to sign in with an Ubuntu One account before starting a chat. Anyone with an open chat who is not signed in will be asked to sign in to continue.',
+      confirmLabel: 'Require sign-in',
+    });
+    if (!confirmed) {
+      input.checked = false;
+      return;
+    }
+  }
+  input.disabled = true;
+  const res = await fetch('/api/admin/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ ssoRequired: required }),
+  });
+  input.disabled = false;
+  if (res.ok) {
+    const data = await res.json();
+    applySsoSettings(data.ssoRequired);
+    const text = document.getElementById('sso-saved-text');
+    if (text) {
+      text.textContent = data.ssoRequired
+        ? 'Ubuntu SSO sign-in is now required for participants.'
+        : 'Ubuntu SSO sign-in is no longer required.';
+    }
+    showNotice('sso-saved');
+    return;
+  }
+  input.checked = !required;
+  const err = await res.json().catch(() => ({}));
+  showError('sso-error', 'sso-error-text', err.error || 'Failed to save Ubuntu SSO setting');
+}
+
+let guides = [];
+let editingGuideId = null;
+let guideSlugEdited = false;
+
+function initGuides() {
+  document.getElementById('guide-add-btn')?.addEventListener('click', () => openGuideEditor(null));
+  document.getElementById('guide-form')?.addEventListener('submit', saveGuide);
+  document.getElementById('guide-title')?.addEventListener('input', (e) => {
+    if (editingGuideId || guideSlugEdited) return;
+    const slug = document.getElementById('guide-slug');
+    if (slug) slug.value = slugify(e.target.value);
+    updateSlugHelp();
+  });
+  document.getElementById('guide-slug')?.addEventListener('input', () => {
+    guideSlugEdited = true;
+    updateSlugHelp();
+  });
+  document.getElementById('guides-list')?.addEventListener('click', onGuideAction);
+}
+
+function slugify(value) {
+  return String(value)
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+function updateSlugHelp() {
+  const help = document.getElementById('guide-slug-help');
+  const slug = document.getElementById('guide-slug')?.value.trim();
+  if (help) help.textContent = slug ? `Page address: /guides/${slug}.html` : '';
+}
+
+async function loadGuides() {
+  const res = await fetch('/api/admin/guides', { credentials: 'include' });
+  if (!res.ok) return;
+  guides = (await res.json()).guides;
+  renderGuides();
+}
+
+function renderGuides() {
+  const tbody = document.getElementById('guides-list');
+  const empty = document.getElementById('guides-empty');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  empty?.classList.toggle('u-hide', guides.length > 0);
+  guides.forEach((guide, index) => {
+    const tr = document.createElement('tr');
+    tr.dataset.id = guide.id;
+    const status = guide.enabled
+      ? '<span class="p-status-label--positive">Enabled</span>'
+      : '<span class="p-status-label">Disabled</span>';
+    tr.innerHTML = `
+      <td>
+        <span class="helpdesk-admin-guides__title">${escapeHtml(guide.title)}</span>
+        <a class="helpdesk-admin-guides__meta" href="/guides/${encodeURIComponent(guide.slug)}.html" target="_blank" rel="noopener">/guides/${escapeHtml(guide.slug)}.html</a>
+      </td>
+      <td>${status}</td>
+      <td class="helpdesk-admin-guides__actions-cell">
+        <span class="helpdesk-admin-guides__actions">
+          <button type="button" class="p-button is-dense has-icon" data-action="up" aria-label="Move ${escapeHtml(guide.title)} up" ${index === 0 ? 'disabled' : ''}><i class="p-icon--chevron-up"></i></button>
+          <button type="button" class="p-button is-dense has-icon" data-action="down" aria-label="Move ${escapeHtml(guide.title)} down" ${index === guides.length - 1 ? 'disabled' : ''}><i class="p-icon--chevron-down"></i></button>
+          <button type="button" class="p-button is-dense" data-action="toggle">${guide.enabled ? 'Disable' : 'Enable'}</button>
+          <button type="button" class="p-button is-dense" data-action="edit">Edit</button>
+          <button type="button" class="p-button--negative is-dense" data-action="delete">Delete</button>
+        </span>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function showGuidesError(message) {
+  hideNotice('guides-saved');
+  showError('guides-error', 'guides-error-text', message);
+}
+
+function showGuidesSaved(message) {
+  hideNotice('guides-error');
+  const text = document.getElementById('guides-saved-text');
+  if (text) text.textContent = message;
+  showNotice('guides-saved');
+}
+
+async function guideRequest(url, options) {
+  const res = await fetch(url, {
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  if (Array.isArray(data.guides)) {
+    guides = data.guides;
+    renderGuides();
+  }
+  return data;
+}
+
+async function onGuideAction(e) {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const id = btn.closest('tr')?.dataset.id;
+  const guide = guides.find((g) => g.id === id);
+  if (!guide) return;
+  const { action } = btn.dataset;
+
+  if (action === 'edit') {
+    openGuideEditor(guide);
+    return;
+  }
+
+  try {
+    if (action === 'up' || action === 'down') {
+      await guideRequest(`/api/admin/guides/${encodeURIComponent(id)}/move`, {
+        method: 'POST',
+        body: JSON.stringify({ direction: action }),
+      });
+      document
+        .querySelector(`#guides-list tr[data-id="${CSS.escape(id)}"] [data-action="${action}"]`)
+        ?.focus();
+    } else if (action === 'toggle') {
+      await guideRequest(`/api/admin/guides/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: !guide.enabled }),
+      });
+      showGuidesSaved(`“${guide.title}” ${guide.enabled ? 'disabled' : 'enabled'}.`);
+    } else if (action === 'delete') {
+      const confirmed = await confirmModal({
+        title: 'Delete guide?',
+        message: `“${guide.title}” will be removed from the home page and its page will stop working. This cannot be undone.`,
+        confirmLabel: 'Delete guide',
+        danger: true,
+      });
+      if (!confirmed) return;
+      await guideRequest(`/api/admin/guides/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      showGuidesSaved(`“${guide.title}” deleted.`);
+    }
+  } catch (err) {
+    showGuidesError(err.message);
+  }
+}
+
+function openGuideEditor(guide) {
+  editingGuideId = guide?.id ?? null;
+  guideSlugEdited = Boolean(guide);
+  hideNotice('guide-form-error');
+  document.getElementById('guide-modal-title').textContent = guide ? 'Edit guide' : 'Add guide';
+  document.getElementById('guide-title').value = guide?.title ?? '';
+  document.getElementById('guide-slug').value = guide?.slug ?? '';
+  document.getElementById('guide-excerpt').value = guide?.excerpt ?? '';
+  document.getElementById('guide-summary').value = guide?.summary ?? '';
+  document.getElementById('guide-image').value = guide?.imageUrl ?? '';
+  document.getElementById('guide-content').value =
+    guide?.content ?? '## Steps\n1. \n\n## Troubleshooting\n- ';
+  document.getElementById('guide-enabled').checked = guide ? guide.enabled : true;
+  updateSlugHelp();
+  showModal(document.getElementById('guide-modal'));
+}
+
+async function saveGuide(e) {
+  e.preventDefault();
+  hideNotice('guide-form-error');
+  const title = document.getElementById('guide-title').value.trim();
+  if (!title) {
+    showError('guide-form-error', 'guide-form-error-text', 'Title is required');
+    document.getElementById('guide-title').focus();
+    return;
+  }
+  const body = {
+    title,
+    slug: document.getElementById('guide-slug').value.trim(),
+    excerpt: document.getElementById('guide-excerpt').value,
+    summary: document.getElementById('guide-summary').value,
+    imageUrl: document.getElementById('guide-image').value.trim(),
+    content: document.getElementById('guide-content').value,
+    enabled: document.getElementById('guide-enabled').checked,
+  };
+  const saveBtn = document.getElementById('guide-save-btn');
+  saveBtn.disabled = true;
+  try {
+    const url = editingGuideId
+      ? `/api/admin/guides/${encodeURIComponent(editingGuideId)}`
+      : '/api/admin/guides';
+    const { guide } = await guideRequest(url, {
+      method: editingGuideId ? 'PUT' : 'POST',
+      body: JSON.stringify(body),
+    });
+    hideModal(document.getElementById('guide-modal'));
+    showGuidesSaved(`“${guide.title}” saved.`);
+  } catch (err) {
+    showError('guide-form-error', 'guide-form-error-text', err.message);
+  } finally {
+    saveBtn.disabled = false;
+  }
 }
 
 function populatePrintRoomSelect(rooms) {
@@ -578,8 +830,13 @@ async function loadQueue() {
       (c.needs_reply ? ' helpdesk-queue-btn--needs-reply' : '') +
       (selectedId === c.id ? ' is-active' : '');
     const name = c.participant_name || 'Anonymous';
+    const email = c.participant_sso?.email;
     btn.innerHTML = `<span class="helpdesk-queue-btn__room">${escapeHtml(c.room)}</span>
-      <span class="helpdesk-queue-btn__meta u-text-muted">${escapeHtml(name)}</span>`;
+      <span class="helpdesk-queue-btn__meta u-text-muted">${escapeHtml(name)}</span>${
+        email
+          ? `<span class="helpdesk-queue-btn__meta u-text-muted">${escapeHtml(email)}</span>`
+          : ''
+      }`;
     btn.addEventListener('click', () => selectConversation(c.id));
     li.appendChild(btn);
     list.appendChild(li);
@@ -608,8 +865,10 @@ function applyPresenceToHeader(online) {
 async function selectConversation(id, { updateUrl = true, replace = false } = {}) {
   selectedId = id;
   if (updateUrl) {
-    showAdminTab('conversations', { updateUrl: false });
+    // Write the URL first: showAdminTab reads the conversation from it and would
+    // otherwise clear the selection.
     setAdminUrl({ tab: 'conversations', conversation: id }, { replace });
+    showAdminTab('conversations', { updateUrl: false });
   }
   disconnectWs();
   showChatActive();

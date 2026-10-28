@@ -1,0 +1,36 @@
+// Shared modal tweaks on top of Vanilla p-modal (see public/js/modal.js)
+
+@mixin helpdesk-modal {
+  .helpdesk-modal-open {
+    overflow: hidden;
+  }
+
+  .helpdesk-modal__dialog--narrow {
+    width: 100%;
+
+    @media (min-width: $threshold-6-12-col) {
+      max-width: 32rem;
+    }
+  }
+
+  .helpdesk-modal__dialog--wide {
+    width: 100%;
+
+    @media (min-width: $threshold-6-12-col) {
+      max-width: 48rem;
+    }
+  }
+
+  .helpdesk-modal__footer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $sph--small;
+    justify-content: flex-end;
+
+    .p-button,
+    [class*="p-button--"] {
+      margin-bottom: 0;
+      margin-left: 0;
+    }
+  }
+}

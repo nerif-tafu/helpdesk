@@ -146,6 +146,18 @@
                   type="button"
                   class="p-tabs__link"
                   role="tab"
+                  id="tab-guides-btn"
+                  aria-selected="false"
+                  aria-controls="tab-guides"
+                >
+                  Guides &amp; FAQ
+                </button>
+              </li>
+              <li class="p-tabs__item" role="presentation">
+                <button
+                  type="button"
+                  class="p-tabs__link"
+                  role="tab"
                   id="tab-settings-btn"
                   aria-selected="false"
                   aria-controls="tab-settings"
@@ -299,6 +311,55 @@
           </div>
 
           <div
+            id="tab-guides"
+            class="helpdesk-admin-tab-panel u-hide"
+            role="tabpanel"
+            aria-labelledby="tab-guides-btn"
+            hidden
+          >
+            <div class="p-card">
+              <div class="p-card__content">
+                <div class="helpdesk-admin-guides__header u-sv1">
+                  <div>
+                    <h2 class="p-heading--5">Guides and FAQ</h2>
+                    <p class="u-text-muted">
+                      Cards shown on the participant home page, in this order. Disabled guides are
+                      hidden from participants.
+                    </p>
+                  </div>
+                  <button type="button" class="p-button--positive" id="guide-add-btn">
+                    Add guide
+                  </button>
+                </div>
+                <div id="guides-error" class="p-notification--negative u-hide">
+                  <div class="p-notification__content">
+                    <p class="p-notification__message" id="guides-error-text"></p>
+                  </div>
+                </div>
+                <div id="guides-saved" class="p-notification--positive u-hide">
+                  <div class="p-notification__content">
+                    <p class="p-notification__message" id="guides-saved-text"></p>
+                  </div>
+                </div>
+                <table class="helpdesk-admin-guides__table" aria-label="Guides">
+                  <thead>
+                    <tr>
+                      <th>Guide</th>
+                      <th>Status</th>
+                      <th class="helpdesk-admin-guides__actions-cell">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="guides-list"></tbody>
+                </table>
+                <p id="guides-empty" class="u-text-muted u-hide">
+                  No guides yet. The Guides and FAQ section is hidden on the home page until you
+                  add and enable one.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div
             id="tab-settings"
             class="helpdesk-admin-tab-panel u-hide"
             role="tabpanel"
@@ -306,6 +367,42 @@
             hidden
           >
             <div class="p-grid">
+              <div class="p-grid__cell p-grid__cell--span-12">
+                <div class="p-card">
+                  <div class="p-card__content">
+                    <h2 class="p-heading--5">Ubuntu SSO</h2>
+                    <p class="u-text-muted u-sv1">
+                      When required, participants must sign in with their Ubuntu One account at
+                      <a href="https://login.ubuntu.com/">login.ubuntu.com</a> before starting or
+                      continuing a chat. Their name and email are shown to support.
+                    </p>
+                    <form id="sso-form" class="p-form">
+                      <div class="p-form__group">
+                        <label class="p-switch">
+                          <input
+                            type="checkbox"
+                            class="p-switch__input"
+                            role="switch"
+                            id="sso-required"
+                          />
+                          <span class="p-switch__slider"></span>
+                          <span class="p-switch__label">Require Ubuntu SSO sign-in</span>
+                        </label>
+                      </div>
+                    </form>
+                    <div id="sso-saved" class="p-notification--positive u-hide u-sv1">
+                      <div class="p-notification__content">
+                        <p class="p-notification__message" id="sso-saved-text"></p>
+                      </div>
+                    </div>
+                    <div id="sso-error" class="p-notification--negative u-hide u-sv1">
+                      <div class="p-notification__content">
+                        <p class="p-notification__message" id="sso-error-text"></p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <div
                 class="p-grid__cell p-grid__cell--span-6 p-grid__cell--small-span-4 p-grid__cell--large-span-4"
               >
@@ -491,7 +588,7 @@
                   <div class="p-card__content">
                     <h2 class="p-heading--5">Backup &amp; restore</h2>
                     <p class="u-text-muted u-sv1">
-                      All help desk data (rooms, WiFi, hours, Telegram, conversations, and messages)
+                      All help desk data (rooms, WiFi, hours, Telegram, Ubuntu SSO, guides, conversations, and messages)
                       is stored in <code>data/helpdesk.json</code>. Export a snapshot for backup or
                       migration; import to restore on another machine.
                     </p>
@@ -626,6 +723,103 @@
             </div>
           </div>
         </div>
+      </section>
+    </div>
+
+    <div id="guide-modal" class="p-modal u-hide" aria-hidden="true">
+      <section
+        class="p-modal__dialog helpdesk-modal__dialog--wide"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="guide-modal-title"
+      >
+        <header class="p-modal__header">
+          <h2 class="p-modal__title" id="guide-modal-title">Add guide</h2>
+          <button
+            type="button"
+            class="p-modal__close"
+            aria-label="Close dialog"
+            aria-controls="guide-modal"
+          >
+            Close
+          </button>
+        </header>
+        <form id="guide-form" class="p-form" novalidate>
+          <div class="p-form__group">
+            <label for="guide-title" class="p-form__label">Title</label>
+            <input
+              type="text"
+              id="guide-title"
+              class="p-form__control"
+              maxlength="120"
+              required
+              data-modal-autofocus
+            />
+          </div>
+          <div class="p-form__group">
+            <label for="guide-slug" class="p-form__label">URL slug</label>
+            <input
+              type="text"
+              id="guide-slug"
+              class="p-form__control"
+              maxlength="80"
+              placeholder="generated from the title"
+              autocomplete="off"
+            />
+            <p class="p-form__help" id="guide-slug-help"></p>
+          </div>
+          <div class="p-form__group">
+            <label for="guide-excerpt" class="p-form__label">Card summary</label>
+            <textarea id="guide-excerpt" class="p-form__control" rows="2" maxlength="300"></textarea>
+            <p class="p-form__help">Shown under the title on the home page card.</p>
+          </div>
+          <div class="p-form__group">
+            <label for="guide-summary" class="p-form__label">Page subtitle</label>
+            <input type="text" id="guide-summary" class="p-form__control" maxlength="300" />
+          </div>
+          <div class="p-form__group">
+            <label for="guide-image" class="p-form__label">Image URL</label>
+            <input
+              type="url"
+              id="guide-image"
+              class="p-form__control"
+              maxlength="1000"
+              placeholder="https://assets.ubuntu.com/v1/…"
+              autocomplete="off"
+            />
+            <p class="p-form__help">16:9 image for the home page card. Leave empty for no image.</p>
+          </div>
+          <div class="p-form__group">
+            <label for="guide-content" class="p-form__label">Content</label>
+            <textarea
+              id="guide-content"
+              class="p-form__control helpdesk-admin-guides__content"
+              rows="12"
+              maxlength="20000"
+            ></textarea>
+            <p class="p-form__help">
+              Use <code>## Heading</code>, <code>1. Step</code>, <code>- Bullet</code>,
+              <code>**bold**</code>, and <code>[link text](https://…)</code>. Leave a blank line
+              between paragraphs.
+            </p>
+          </div>
+          <div class="p-form__group">
+            <label class="p-switch">
+              <input type="checkbox" class="p-switch__input" role="switch" id="guide-enabled" />
+              <span class="p-switch__slider"></span>
+              <span class="p-switch__label">Show on home page</span>
+            </label>
+          </div>
+          <div id="guide-form-error" class="p-notification--negative u-hide">
+            <div class="p-notification__content">
+              <p class="p-notification__message" id="guide-form-error-text"></p>
+            </div>
+          </div>
+          <footer class="p-modal__footer helpdesk-modal__footer-actions">
+            <button type="button" class="p-button" aria-controls="guide-modal">Cancel</button>
+            <button type="submit" class="p-button--positive" id="guide-save-btn">Save guide</button>
+          </footer>
+        </form>
       </section>
     </div>
 

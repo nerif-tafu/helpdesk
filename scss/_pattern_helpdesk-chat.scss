@@ -3,38 +3,6 @@
     position: relative;
   }
 
-  .helpdesk-chat-ended-overlay {
-    align-items: center;
-    background: $colors--theme--background-overlay;
-    border-radius: inherit;
-    display: flex;
-    inset: 0;
-    justify-content: center;
-    padding: $spv--large $sph--large;
-    position: absolute;
-    z-index: 10;
-  }
-
-  .helpdesk-chat-ended-overlay__dialog {
-    @extend %vf-has-box-shadow;
-
-    background: $colors--theme--background-default;
-    border-radius: $border-radius;
-    color: $colors--theme--text-default;
-    max-width: 24rem;
-    padding: $spv--large $sph--large;
-    text-align: center;
-    width: 100%;
-  }
-
-  .helpdesk-chat-ended-overlay__actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: $sph--small;
-    justify-content: center;
-    margin-top: $spv--large;
-  }
-
   .helpdesk-chat-toolbar {
     align-items: center;
     display: flex;
@@ -243,7 +211,7 @@
   .helpdesk-telegram-logs {
     background: $colors--theme--background-inputs;
     border: 1px solid $colors--theme--border-default;
-    font-family: $font-monospace;
+    font-family: unquote($font-monospace);
     font-size: map-get($font-sizes, small);
     margin: 0;
     max-height: 16rem;
@@ -335,6 +303,65 @@
     font-size: 0.875rem;
   }
 
+  .helpdesk-admin-guides__header {
+    align-items: flex-start;
+    display: flex;
+    flex-wrap: wrap;
+    gap: $sph--large;
+    justify-content: space-between;
+  }
+
+  .helpdesk-admin-guides__table {
+    td {
+      vertical-align: middle;
+    }
+
+    @media (width < $breakpoint-large) {
+      thead {
+        display: none;
+      }
+
+      tr,
+      td {
+        display: block;
+      }
+
+      .helpdesk-admin-guides__actions-cell {
+        text-align: left;
+      }
+    }
+  }
+
+  .helpdesk-admin-guides__actions-cell {
+    text-align: right;
+  }
+
+  .helpdesk-admin-guides__title {
+    display: block;
+    font-weight: 500;
+  }
+
+  .helpdesk-admin-guides__meta {
+    display: block;
+    font-size: 0.875rem;
+  }
+
+  .helpdesk-admin-guides__actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: $sph--small;
+    justify-content: flex-end;
+
+    .p-button,
+    [class*="p-button--"] {
+      margin: 0;
+    }
+  }
+
+  .helpdesk-admin-guides__content {
+    font-family: unquote($font-monospace);
+    font-size: 0.875rem;
+  }
 }
 
 @mixin helpdesk-admin-queue {
