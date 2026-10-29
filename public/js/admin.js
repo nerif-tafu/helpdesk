@@ -319,9 +319,14 @@ async function importHelpdeskData(e) {
   const settingsOnly =
     document.querySelector('input[name="data-import-mode"]:checked')?.value === 'settings';
   const label = settingsOnly ? 'settings only' : 'all data';
+  const replaceAdmins = Boolean(document.getElementById('data-import-replace-admins')?.checked);
   const confirmed = await confirmModal({
     title: `Import ${label}?`,
-    message: `Importing "${file.name}" will overwrite existing ${label}.`,
+    message: `Importing "${file.name}" will overwrite existing ${label}. ${
+      replaceAdmins
+        ? 'The admin list will also be replaced by the one in the file, which can remove your own access.'
+        : 'The current admin list will be kept.'
+    }`,
     confirmLabel: 'Import',
     danger: true,
   });
@@ -337,7 +342,7 @@ async function importHelpdeskData(e) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ data, settingsOnly }),
+    body: JSON.stringify({ data, settingsOnly, replaceAdmins }),
   });
   if (res.ok) {
     const view = await res.json();

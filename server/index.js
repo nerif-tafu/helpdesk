@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cookieParser from 'cookie-parser';
+import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -9,7 +10,7 @@ import { WebSocketServer } from 'ws';
 import http from 'http';
 import proxyaddr from 'proxy-addr';
 import * as db from './db.js';
-import { rateLimit } from './rate-limit.js';
+import { hit, rateLimit } from './rate-limit.js';
 import {
   AUDIT_CATEGORIES,
   MAX_AUDIT_ENTRIES,
@@ -53,6 +54,7 @@ import {
   getSsoUserFromHeaders,
   getSsoUserByToken,
   ssoTokenFromHeaders,
+  parseCookieHeader,
   startLogin as startSsoLogin,
   handleCallback as handleSsoCallback,
   logout as ssoLogout,
@@ -94,7 +96,6 @@ app.use((_req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
 /** True when a browser request comes from another site (CSRF / cross-site WebSocket). */
@@ -113,17 +114,6 @@ function isCrossSite(headers) {
   }
 }
 
-// Reject cross-site state-changing requests. The Ubuntu SSO callback is the one
-// cross-site POST we expect (login.ubuntu.com may POST back to us).
-app.use((req, res, next) => {
-  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
-  if (req.path === '/auth/sso/callback') return next();
-  if (isCrossSite(req.headers)) {
-    req.audit = { action: 'http.cross_site_blocked', details: { origin: req.get('origin') } };
-    return res.status(403).json({ error: 'Cross-site request blocked' });
-  }
-  next();
-});
 
 /** The signed-in Ubuntu SSO user if they are a support admin, else null. */
 function adminUser(user) {
@@ -175,6 +165,21 @@ app.use((req, res, next) => {
   });
   next();
 });
+// Parse bodies after the audit hook so malformed requests are still logged.
+app.use(express.json({ limit: '1mb' }));
+
+// Reject cross-site state-changing requests. The Ubuntu SSO callback is the one
+// cross-site POST we expect (login.ubuntu.com may POST back to us).
+app.use((req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  if (req.path === '/auth/sso/callback') return next();
+  if (isCrossSite(req.headers)) {
+    req.audit = { action: 'http.cross_site_blocked', details: { origin: req.get('origin') } };
+    return res.status(403).json({ error: 'Cross-site request blocked' });
+  }
+  next();
+});
+
 app.get('/favicon.ico', (_req, res) => res.redirect(301, '/favicon.png'));
 const publicDir = path.join(__dirname, '..', 'public');
 
@@ -218,47 +223,78 @@ function publicSsoUser(user) {
   return user ? { name: ssoDisplayName(user), email: user.email, nickname: user.nickname } : null;
 }
 
-// Participants may use a conversation when it was started by the same Ubuntu SSO
-// account, or (for conversations without an SSO owner) when SSO is not required
-// or they are signed in. Support admins can always access conversations.
-function canParticipantAccess(conversation, user) {
-  if (conversation.participant_sso) {
-    return Boolean(user) && user.id === conversation.participant_sso.id;
+// Each guest chat gets a random secret held only by the starting browser
+// (HttpOnly cookie); the server stores its hash. A chat link alone (e.g. from
+// a Telegram alert) therefore never grants participant access.
+const CHAT_COOKIE = 'hd_chats';
+const MAX_REMEMBERED_CHATS = 10;
+
+function hashSecret(secret) {
+  return crypto.createHash('sha256').update(String(secret)).digest('hex');
+}
+
+/** Chat secrets from the cookie: "id.secret,id.secret" → Map(id → secret). */
+function readChatSecrets(cookies) {
+  const map = new Map();
+  for (const pair of String(cookies?.[CHAT_COOKIE] || '').split(',')) {
+    const dot = pair.indexOf('.');
+    if (dot > 0) map.set(pair.slice(0, dot), pair.slice(dot + 1));
   }
-  return !getSsoRequired() || Boolean(user);
+  return map;
+}
+
+function rememberChatSecret(req, res, conversationId, secret) {
+  const others = [...readChatSecrets(req.cookies)].filter(([id]) => id !== conversationId);
+  const value = [[conversationId, secret], ...others]
+    .slice(0, MAX_REMEMBERED_CHATS)
+    .map(([id, s]) => `${id}.${s}`)
+    .join(',');
+  res.cookie(CHAT_COOKIE, value, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+}
+
+function hasChatSecret(conversation, cookies) {
+  const expected = conversation.participant_secret_hash;
+  const secret = readChatSecrets(cookies).get(conversation.id);
+  if (!expected || !secret) return false;
+  const a = Buffer.from(hashSecret(secret));
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 /**
- * While SSO is required, the first signed-in person to use a guest chat (one
- * started before SSO, without an owner) claims it; afterwards only that
- * Ubuntu One account can use it.
+ * May this browser use the chat as its participant?
+ * - Started while signed in: only that Ubuntu One account.
+ * - Guest chat: only the browser holding its secret (and signed in while SSO is required).
+ * - Legacy guest chat (no secret): by link while SSO is off; nobody once SSO is required,
+ *   so old links cannot be claimed.
+ * Support admins are checked separately and can always access conversations.
  */
-function claimGuestChat(conversation, user, auditReq) {
-  if (conversation.participant_sso || !getSsoRequired() || !user) return conversation;
-  const claimed = db.claimConversation(conversation.id, user);
-  recordAudit({
-    action: 'chat.claim',
-    ip: auditReq.ip ?? proxyaddr(auditReq, app.get('trust proxy fn')),
-    actor: describeActor(user),
-    target: conversation.id,
-    path: auditReq.originalUrl?.split('?')[0] ?? '/ws',
-    userAgent: auditReq.headers['user-agent'],
-    details: { room: conversation.room },
-  });
-  return claimed;
+function canParticipantAccess(conversation, user, secretOk) {
+  if (conversation.participant_sso) {
+    return Boolean(user) && user.id === conversation.participant_sso.id;
+  }
+  if (conversation.participant_secret_hash) {
+    return secretOk && (!getSsoRequired() || Boolean(user));
+  }
+  return !getSsoRequired();
 }
 
 function requireConversationAccess(req, res, conversation) {
   if (isAdmin(req)) return true;
   const user = getSsoUser(req);
-  if (canParticipantAccess(conversation, user)) {
-    claimGuestChat(conversation, user, req);
+  if (canParticipantAccess(conversation, user, hasChatSecret(conversation, req.cookies))) {
     return true;
   }
-  res.status(getSsoUser(req) ? 403 : 401).json({
-    error: 'Sign in with Ubuntu SSO to access this chat',
-    ssoRequired: true,
-  });
+  if (getSsoRequired() && !user) {
+    res.status(401).json({ error: 'Sign in with Ubuntu SSO to access this chat', ssoRequired: true });
+  } else {
+    res.status(403).json({ error: 'This chat belongs to someone else' });
+  }
   return false;
 }
 
@@ -312,8 +348,9 @@ function isParticipantOnline(conversationId) {
 
 function enrichConversation(conversation) {
   if (!conversation) return null;
+  const { participant_secret_hash: _secret, ...rest } = conversation;
   return {
-    ...conversation,
+    ...rest,
     participant_online: isParticipantOnline(conversation.id),
   };
 }
@@ -348,7 +385,7 @@ function revalidateSockets(reason) {
         conversation &&
         (client.sender === 'support'
           ? Boolean(adminUser(user))
-          : canParticipantAccess(conversation, user));
+          : canParticipantAccess(conversation, user, client.secretOk));
       if (allowed) continue;
       wsAudit(
         client.req,
@@ -390,11 +427,47 @@ function wsAudit(req, action, details, target) {
 wss.on('error', (err) => console.error(`WebSocket server error: ${err.message}`));
 
 wss.on('connection', (ws, req) => {
+  try {
+    handleConnection(ws, req);
+  } catch (err) {
+    console.error(`WebSocket connection rejected: ${err.message}`);
+    ws.terminate();
+  }
+});
+
+// Live connection limits. Per-IP limits are generous because everyone at the
+// venue can share one public IP.
+const WS_UPGRADES_PER_MINUTE = 120;
+const WS_OPEN_PER_IP = 200;
+const WS_OPEN_PER_CHAT = 10;
+const TYPING_MIN_INTERVAL_MS = 250;
+const TYPING_FRAMES_PER_MINUTE = 240;
+const openSocketsByIp = new Map();
+
+function handleConnection(ws, req) {
   ws.on('error', (err) => {
     wsAudit(req, 'connection.error', { error: err.message, code: err.code });
     ws.terminate();
   });
-  const url = new URL(req.url || '', `http://${req.headers.host}`);
+  const ip = proxyaddr(req, app.get('trust proxy fn'));
+  if (!hit(`ws-upgrade:${ip}`, WS_UPGRADES_PER_MINUTE, 60 * 1000).ok) {
+    wsAudit(req, 'connection.denied', { reason: 'too many new connections' });
+    ws.close(4029, 'Too many connections');
+    return;
+  }
+  if ((openSocketsByIp.get(ip) || 0) >= WS_OPEN_PER_IP) {
+    wsAudit(req, 'connection.denied', { reason: 'too many open connections from this IP' });
+    ws.close(4029, 'Too many connections');
+    return;
+  }
+  openSocketsByIp.set(ip, (openSocketsByIp.get(ip) || 0) + 1);
+  ws.once('close', () => {
+    const remaining = (openSocketsByIp.get(ip) || 1) - 1;
+    if (remaining > 0) openSocketsByIp.set(ip, remaining);
+    else openSocketsByIp.delete(ip);
+  });
+  // Parse against a fixed base: the Host header is attacker-controlled and may be malformed.
+  const url = new URL(req.url || '/', 'http://localhost');
   const conversationId = url.searchParams.get('conversationId');
   const role = url.searchParams.get('role');
   const connectedAt = Date.now();
@@ -422,15 +495,26 @@ wss.on('connection', (ws, req) => {
     return;
   }
   const wsUser = getSsoUserFromHeaders(req.headers);
-  if (role === 'participant' && canParticipantAccess(conversation, wsUser)) {
-    claimGuestChat(conversation, wsUser, req);
-  } else if (role === 'participant') {
+  const secretOk = hasChatSecret(conversation, parseCookieHeader(req.headers.cookie));
+  if (role === 'participant' && !canParticipantAccess(conversation, wsUser, secretOk)) {
     wsAudit(req, 'connection.denied', { role, room: conversation.room }, conversationId);
     ws.close(4001, 'Unauthorized');
     return;
   }
+  if ((clients.get(conversationId)?.size || 0) >= WS_OPEN_PER_CHAT) {
+    wsAudit(req, 'connection.denied', { role, room: conversation.room, reason: 'too many connections to this chat' }, conversationId);
+    ws.close(4029, 'Too many connections');
+    return;
+  }
   wsAudit(req, 'connection.open', { role, room: conversation.room }, conversationId);
-  const client = { ws, sender: role, req, ssoToken: ssoTokenFromHeaders(req.headers) };
+  const client = {
+    id: crypto.randomUUID(),
+    ws,
+    sender: role,
+    req,
+    ssoToken: ssoTokenFromHeaders(req.headers),
+    secretOk,
+  };
   if (!clients.has(conversationId)) clients.set(conversationId, new Set());
   clients.get(conversationId).add(client);
 
@@ -447,10 +531,20 @@ wss.on('connection', (ws, req) => {
     broadcastPresence(conversationId);
   }
 
+  let lastTypingAt = 0;
   ws.on('message', (raw) => {
+    if (!hit(`ws-frames:${client.id}`, TYPING_FRAMES_PER_MINUTE, 60 * 1000).ok) {
+      wsAudit(req, 'connection.denied', { role, room: conversation.room, reason: 'too many messages' }, conversationId);
+      ws.close(4029, 'Too many messages');
+      return;
+    }
     try {
       const data = JSON.parse(String(raw));
       if (data.type === 'typing' && data.sender === role && typeof data.typing === 'boolean') {
+        const now = Date.now();
+        // Always pass "stopped typing"; drop "typing" bursts.
+        if (data.typing && now - lastTypingAt < TYPING_MIN_INTERVAL_MS) return;
+        lastTypingAt = now;
         relayTyping(conversationId, role, data.typing, ws);
       }
     } catch {
@@ -467,7 +561,7 @@ wss.on('connection', (ws, req) => {
       conversationId
     );
   });
-});
+}
 
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_NAME_LENGTH = 80;
@@ -562,9 +656,11 @@ app.post('/api/conversations', limitChatStart, (req, res) => {
     0,
     MAX_NAME_LENGTH
   );
-  const conversation = db.createConversation(room, name, ssoUser);
+  const secret = crypto.randomBytes(24).toString('hex');
+  const conversation = db.createConversation(room, name, ssoUser, hashSecret(secret));
+  rememberChatSecret(req, res, conversation.id, secret);
   audit(req, 'chat.start', { room, name }, conversation.id);
-  res.status(201).json({ conversation });
+  res.status(201).json({ conversation: enrichConversation(conversation) });
 });
 
 app.get('/api/conversations/:id', (req, res) => {
@@ -643,7 +739,7 @@ app.post('/api/conversations/:id/end', (req, res) => {
   if (!conversation) return res.status(404).json({ error: 'Not found' });
   if (!requireConversationAccess(req, res, conversation)) return;
   if (conversation.status === 'resolved') {
-    return res.json({ conversation });
+    return res.json({ conversation: enrichConversation(conversation) });
   }
   const updated = setConversationStatus(req.params.id, 'resolved');
   audit(req, 'chat.end', { room: conversation.room, by: isAdmin(req) ? 'support' : 'participant' }, conversation.id);
@@ -850,13 +946,19 @@ app.get('/api/admin/data/export', requireAdmin, (req, res) => {
 });
 
 app.post('/api/admin/data/import', requireAdmin, (req, res) => {
-  const { data, settingsOnly } = req.body || {};
+  const { data, settingsOnly, replaceAdmins } = req.body || {};
   if (!data || typeof data !== 'object') {
     return res.status(400).json({ error: 'data must be a JSON object' });
   }
   try {
-    importHelpdeskData(data, { settingsOnly: Boolean(settingsOnly) });
-    audit(req, 'data.import', { mode: settingsOnly ? 'settings only' : 'all data' });
+    const { adminsReplaced } = importHelpdeskData(data, {
+      settingsOnly: Boolean(settingsOnly),
+      replaceAdmins: replaceAdmins === true,
+    });
+    audit(req, 'data.import', {
+      mode: settingsOnly ? 'settings only' : 'all data',
+      admins: adminsReplaced ? 'replaced from file' : 'kept current list',
+    });
     revalidateSockets('data imported');
     res.json({ ok: true, ...getAdminSettingsView() });
   } catch (err) {
@@ -960,6 +1062,24 @@ app.get('/api/admin/audit/export', requireAdmin, (req, res) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="helpdesk-audit-${stamp}.csv"`);
   res.send(auditCsv({ category, q }));
+});
+
+// Final error handler: short JSON errors and one-line logs (no stack-trace
+// floods from malformed requests).
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, _next) => {
+  const status = err.status || err.statusCode || 500;
+  if (status >= 500) console.error(`${req.method} ${req.path} failed: ${err.message}`);
+  if (res.headersSent) return;
+  const message =
+    err.type === 'entity.parse.failed'
+      ? 'Request body is not valid JSON'
+      : err.type === 'entity.too.large'
+        ? 'Request body is too large'
+        : status >= 500
+          ? 'Something went wrong'
+          : err.message || 'Bad request';
+  res.status(status).json({ error: message });
 });
 
 // Flush buffered audit entries and pending chat data before exiting.

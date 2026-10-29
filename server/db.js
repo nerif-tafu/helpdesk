@@ -107,13 +107,15 @@ function id() {
   return crypto.randomUUID();
 }
 
-export function createConversation(room, participantName, ssoUser = null) {
+export function createConversation(room, participantName, ssoUser = null, secretHash = null) {
   const conversationId = id();
   const timestamp = now();
   const conversation = {
     id: conversationId,
     room,
     participant_name: participantName || null,
+    // Hash of the guest's secret; only the starting browser holds the secret itself.
+    participant_secret_hash: ssoUser ? null : secretHash,
     participant_sso: ssoUser
       ? {
           id: ssoUser.id,
@@ -159,25 +161,6 @@ export function listConversations(status) {
     .map((c) => ({ ...c, needs_reply: conversationNeedsReply(c) }));
   if (status) return list.filter((c) => c.status === status);
   return list;
-}
-
-/** Bind an unowned (guest) conversation to an Ubuntu SSO user. */
-export function claimConversation(conversationId, user) {
-  const conversation = getConversation(conversationId);
-  if (!conversation || conversation.participant_sso || !user?.id) return conversation;
-  const participant_sso = {
-    id: user.id,
-    nickname: user.nickname || null,
-    email: user.email || null,
-    fullname: user.fullname || null,
-  };
-  persist({
-    ...store,
-    conversations: store.conversations.map((c) =>
-      c.id === conversationId ? { ...c, participant_sso } : c
-    ),
-  });
-  return getConversation(conversationId);
 }
 
 export function markSupportJoined(conversationId) {
@@ -256,15 +239,25 @@ export function getExportSnapshot() {
   };
 }
 
-export function importSnapshot(payload, { settingsOnly = false } = {}) {
+export function importSnapshot(payload, { settingsOnly = false, replaceAdmins = false } = {}) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('Import data must be a JSON object');
   }
 
-  const incomingSettings =
+  let incomingSettings =
     payload.settings && typeof payload.settings === 'object'
-      ? payload.settings
+      ? { ...payload.settings }
       : null;
+
+  // The admin list is only replaced when explicitly requested and the file
+  // actually has one; otherwise the current roster is kept, so an old backup
+  // can never bring back a removed admin.
+  const fileAdmins = Array.isArray(incomingSettings?.admins) && incomingSettings.admins.length;
+  const adminsReplaced = Boolean(replaceAdmins && fileAdmins);
+  if (incomingSettings && !adminsReplaced) {
+    if (Array.isArray(store.settings.admins)) incomingSettings.admins = store.settings.admins;
+    else delete incomingSettings.admins;
+  }
 
   if (settingsOnly) {
     if (!incomingSettings) {
@@ -274,7 +267,7 @@ export function importSnapshot(payload, { settingsOnly = false } = {}) {
       ...store,
       settings: { ...incomingSettings },
     });
-    return;
+    return { adminsReplaced };
   }
 
   const conversations = Array.isArray(payload.conversations) ? payload.conversations : null;
@@ -292,6 +285,7 @@ export function importSnapshot(payload, { settingsOnly = false } = {}) {
       settings: incomingSettings,
     })
   );
+  return { adminsReplaced };
 }
 
 

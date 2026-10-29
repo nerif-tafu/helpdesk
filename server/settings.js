@@ -610,6 +610,7 @@ export function exportHelpdeskData() {
 }
 
 export function importHelpdeskData(payload, options = {}) {
-  db.importSnapshot(payload, options);
+  const result = db.importSnapshot(payload, options);
   reloadSettings();
+  return result;
 }

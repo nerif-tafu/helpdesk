@@ -51,13 +51,13 @@ The **Audit log** admin tab records page views, chats, live connections, sign-in
 Push a version tag to build an image on GHCR:
 
 ```bash
-git tag v1.6.1 && git push origin v1.6.1
+git tag v1.6.2 && git push origin v1.6.2
 ```
 
 ```bash
 docker run -d -p 3000:3000 \
   -v helpdesk-data:/app/data \
-  ghcr.io/nerif-tafu/helpdesk:1.6.1
+  ghcr.io/nerif-tafu/helpdesk:1.6.2
 ```
 
 ## Production

@@ -53,7 +53,7 @@ function requestOrigin(req) {
   return `${req.protocol}://${req.get('host')}`;
 }
 
-function parseCookieHeader(header) {
+export function parseCookieHeader(header) {
   const out = {};
   for (const part of String(header || '').split(';')) {
     const index = part.indexOf('=');

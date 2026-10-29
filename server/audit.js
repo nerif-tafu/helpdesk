@@ -80,23 +80,24 @@ export function flushAuditSync() {
   needsRewrite = false;
 }
 
-// Cap noisy anonymous events per IP so floods cannot fill the disk.
-// Security-relevant events (sign-ins, settings, chats, blocks) are never capped.
-const NOISY_ACTIONS = new Set(['page.view', 'http.denied', 'connection.open', 'connection.close']);
-const NOISY_LIMIT_PER_MINUTE = 600;
+// Cap entries per IP and actor so floods (page views, rejected or rate-limited
+// requests, connections) cannot fill memory or disk. Keying by actor as well
+// means anonymous traffic from a shared venue IP cannot crowd out a signed-in
+// admin's entries from that same IP. System events are never capped.
+const LIMIT_PER_MINUTE = 600;
 const noisyCounts = new Map();
 
 function overNoisyLimit(event) {
-  if (!NOISY_ACTIONS.has(event.action)) return false;
+  if (event.actor === 'system') return false;
   const now = Date.now();
-  const key = normalizeIp(event.ip);
+  const key = `${normalizeIp(event.ip)}|${event.actor || 'anonymous'}`;
   let bucket = noisyCounts.get(key);
   if (!bucket || bucket.resetAt <= now) {
     bucket = { count: 0, resetAt: now + 60 * 1000, noted: false };
     noisyCounts.set(key, bucket);
   }
   bucket.count += 1;
-  if (bucket.count <= NOISY_LIMIT_PER_MINUTE) return false;
+  if (bucket.count <= LIMIT_PER_MINUTE) return false;
   if (!bucket.noted) {
     bucket.noted = true;
     return 'note';
@@ -170,7 +171,7 @@ export function recordAudit(event) {
       ...event,
       action: 'audit.throttled',
       details: {
-        reason: `More than ${NOISY_LIMIT_PER_MINUTE} page views, connections, or denied requests from this IP in a minute; further ones are not logged until the minute ends`,
+        reason: `More than ${LIMIT_PER_MINUTE} events from this IP and user in a minute; further ones are not logged until the minute ends`,
       },
     };
   }
