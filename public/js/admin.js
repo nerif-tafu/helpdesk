@@ -12,6 +12,7 @@ const ADMIN_TABS = [
   { key: 'guides', btn: 'tab-guides-btn', panel: 'tab-guides', onShow: loadGuides },
   { key: 'settings', btn: 'tab-settings-btn', panel: 'tab-settings', onShow: loadSettings },
   { key: 'audit', btn: 'tab-audit-btn', panel: 'tab-audit', onShow: () => loadAudit() },
+  { key: 'admins', btn: 'tab-admins-btn', panel: 'tab-admins', onShow: () => loadAdmins() },
 ];
 
 let showAdminTab = () => {};
@@ -21,37 +22,31 @@ export async function initAdmin() {
   const dashboard = document.getElementById('dashboard-section');
   const navGuest = document.querySelector('.js-nav-guest');
   const navAuth = document.querySelector('.js-nav-authenticated');
-  const loginForm = document.getElementById('login-form');
-  const loginError = document.getElementById('login-error');
   const logoutBtn = document.getElementById('logout-btn');
+  const loginBtn = document.getElementById('login-btn');
+  const switchBtn = document.getElementById('login-switch-btn');
 
-  const meRes = await fetch('/api/admin/me', { credentials: 'include' });
-  const { authenticated } = await meRes.json();
-  if (authenticated) showDashboard();
-  else showLogin();
+  // Return to the same tab/conversation after signing in.
+  if (loginBtn) {
+    loginBtn.href = `/auth/sso/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+  }
 
-  loginForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    loginError.classList.add('u-hide');
-    const password = document.getElementById('password').value;
-    const res = await fetch('/api/admin/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ password }),
-    });
-    if (res.ok) showDashboard();
-    else loginError.classList.remove('u-hide');
-  });
+  const me = await fetch('/api/admin/me', { credentials: 'include' }).then((r) => r.json());
+  currentAdminEmail = me.user?.email?.toLowerCase() || null;
+  const navEmail = document.getElementById('nav-user-email');
+  if (navEmail) navEmail.textContent = me.user?.email || me.user?.name || '';
+  if (me.authenticated) showDashboard();
+  else showLogin(me);
 
-  logoutBtn.addEventListener('click', async () => {
-    await fetch('/api/admin/logout', { method: 'POST', credentials: 'include' });
+  const signOut = async () => {
+    await fetch('/auth/sso/logout', { method: 'POST', credentials: 'include' });
     selectedId = null;
     disconnectWs();
-    showChatEmpty();
     history.replaceState(null, '', window.location.pathname);
-    showLogin();
-  });
+    window.location.reload();
+  };
+  logoutBtn.addEventListener('click', signOut);
+  switchBtn?.addEventListener('click', signOut);
 
   document.getElementById('filter-status').addEventListener('change', loadQueue);
   document.getElementById('admin-chat-form').addEventListener('submit', sendReply);
@@ -60,8 +55,19 @@ export async function initAdmin() {
   initSettingsForms();
   initGuides();
   initAudit();
+  initAdmins();
 
-  function showLogin() {
+  function showLogin(state = {}) {
+    const denied = document.getElementById('login-denied');
+    if (state.signedIn) {
+      document.getElementById('login-denied-user').textContent =
+        state.user?.email || state.user?.name || 'Ubuntu One user';
+      document.getElementById('login-denied-text').textContent =
+        state.message || 'Your account is not a support admin.';
+    }
+    denied?.classList.toggle('u-hide', !state.signedIn);
+    switchBtn?.classList.toggle('u-hide', !state.signedIn);
+    loginBtn?.classList.toggle('u-hide', Boolean(state.signedIn));
     loginSection.classList.remove('u-hide');
     dashboard.classList.add('u-hide');
     navGuest?.classList.remove('u-hide');
@@ -425,6 +431,12 @@ const AUDIT_LABELS = {
   'admin.login': 'Support signed in',
   'admin.login_failed': 'Support sign-in failed',
   'admin.logout': 'Support signed out',
+  'admin.add': 'Added admin',
+  'admin.add_failed': 'Add admin rejected',
+  'admin.remove': 'Removed admin',
+  'admin.identity_mismatch': 'Admin account mismatch',
+  'http.cross_site_blocked': 'Cross-site request blocked',
+  'http.rate_limited': 'Rate limited',
   'sso.login_start': 'Started Ubuntu SSO sign-in',
   'sso.login': 'Signed in with Ubuntu SSO',
   'sso.login_failed': 'Ubuntu SSO sign-in failed',
@@ -456,7 +468,108 @@ const AUDIT_FAILURES = new Set([
   'settings.update_failed',
   'data.import_failed',
   'http.denied',
+  'admin.add_failed',
+  'admin.identity_mismatch',
+  'http.cross_site_blocked',
+  'http.rate_limited',
 ]);
+
+let currentAdminEmail = null;
+
+function initAdmins() {
+  document.getElementById('admin-add-form')?.addEventListener('submit', addAdminEmail);
+  document.getElementById('admins-list')?.addEventListener('click', onAdminAction);
+}
+
+async function loadAdmins() {
+  const res = await fetch('/api/admin/admins', { credentials: 'include' });
+  if (!res.ok) return;
+  renderAdmins((await res.json()).admins);
+}
+
+function renderAdmins(admins) {
+  const tbody = document.getElementById('admins-list');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  for (const admin of admins) {
+    const tr = document.createElement('tr');
+    const isSelf = admin.email === currentAdminEmail;
+    const fromEnv = admin.source === 'env';
+    const added = fromEnv
+      ? 'ADMIN_EMAILS environment variable'
+      : admin.addedAt
+        ? `${new Date(admin.addedAt).toLocaleDateString()} by ${admin.addedBy}`
+        : 'Default admin';
+    const status = admin.openidId
+      ? '<span class="p-status-label--positive">Signed in before</span>'
+      : '<span class="p-status-label">Not signed in yet</span>';
+    let action = '';
+    if (fromEnv) action = '<span class="u-text-muted">Set on the server</span>';
+    else if (isSelf) action = '<span class="u-text-muted">You</span>';
+    else {
+      action = `<button type="button" class="p-button--negative is-dense" data-action="remove" data-email="${escapeHtml(admin.email)}">Remove</button>`;
+    }
+    tr.innerHTML = `
+      <td><span class="helpdesk-admin-guides__title">${escapeHtml(admin.email)}</span></td>
+      <td>${escapeHtml(added)}</td>
+      <td>${status}</td>
+      <td class="helpdesk-admin-guides__actions-cell">${action}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function showAdminsSaved(message) {
+  hideNotice('admins-error');
+  document.getElementById('admins-saved-text').textContent = message;
+  showNotice('admins-saved');
+}
+
+async function addAdminEmail(e) {
+  e.preventDefault();
+  hideNotice('admins-error', 'admins-saved');
+  const input = document.getElementById('admin-add-email');
+  const email = input.value.trim();
+  if (!email) return;
+  const res = await fetch('/api/admin/admins', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ email }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showError('admins-error', 'admins-error-text', data.error || 'Could not add admin');
+    return;
+  }
+  input.value = '';
+  renderAdmins(data.admins);
+  showAdminsSaved(`${email} can now sign in with Ubuntu SSO.`);
+}
+
+async function onAdminAction(e) {
+  const btn = e.target.closest('button[data-action="remove"]');
+  if (!btn) return;
+  const { email } = btn.dataset;
+  const confirmed = await confirmModal({
+    title: 'Remove admin?',
+    message: `${email} will lose access to the support dashboard immediately.`,
+    confirmLabel: 'Remove admin',
+    danger: true,
+  });
+  if (!confirmed) return;
+  hideNotice('admins-error', 'admins-saved');
+  const res = await fetch(`/api/admin/admins/${encodeURIComponent(email)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showError('admins-error', 'admins-error-text', data.error || 'Could not remove admin');
+    return;
+  }
+  renderAdmins(data.admins);
+  showAdminsSaved(`${email} removed.`);
+}
 
 let auditLastId = null;
 let auditPages = 0;
@@ -1263,8 +1376,12 @@ function showError(boxId, textId, message) {
   box?.classList.remove('u-hide');
 }
 
+/** Escape text for HTML content and double- or single-quoted attributes. */
 function escapeHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

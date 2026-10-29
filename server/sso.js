@@ -40,9 +40,13 @@ function pruneExpired(now = Date.now()) {
   }
 }
 
+/** Only allow same-site paths; "//host" and "/\\host" would leave the site. */
 function safeNextPath(next) {
   const value = String(next || '/');
-  return value.startsWith('/') && !value.startsWith('//') ? value : '/';
+  if (!value.startsWith('/') || /^\/[/\\]/.test(value) || /[\u0000-\u001f\\]/.test(value)) {
+    return '/';
+  }
+  return value;
 }
 
 function requestOrigin(req) {
@@ -202,18 +206,18 @@ export async function handleCallback(req, res) {
 
   if (!pending || !cookieState || cookieState !== state) {
     req.audit = { action: 'sso.login_failed', details: { reason: 'Expired or missing sign-in state' } };
-    return res.redirect('/?sso_error=' + encodeURIComponent('Sign-in session expired. Please try again.'));
+    return res.redirect('/?sso_error=expired');
   }
   pendingStates.delete(state);
 
   const mode = req.query['openid.mode'];
   if (mode === 'cancel') {
     req.audit = { action: 'sso.login_failed', details: { reason: 'Cancelled at login.ubuntu.com' } };
-    return res.redirect('/?sso_error=' + encodeURIComponent('Ubuntu SSO sign-in was cancelled.'));
+    return res.redirect('/?sso_error=cancelled');
   }
   if (mode !== 'id_res') {
     req.audit = { action: 'sso.login_failed', details: { reason: `Unexpected mode ${mode}` } };
-    return res.redirect('/?sso_error=' + encodeURIComponent('Ubuntu SSO sign-in failed.'));
+    return res.redirect('/?sso_error=failed');
   }
 
   try {
@@ -233,7 +237,7 @@ export async function handleCallback(req, res) {
   } catch (err) {
     console.warn(`Ubuntu SSO sign-in failed: ${err.message}`);
     req.audit = { action: 'sso.login_failed', details: { reason: err.message } };
-    res.redirect('/?sso_error=' + encodeURIComponent('Ubuntu SSO sign-in could not be verified.'));
+    res.redirect('/?sso_error=unverified');
   }
 }
 

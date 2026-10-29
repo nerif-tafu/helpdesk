@@ -65,6 +65,9 @@
                       </button>
                     </li>
                     <li>
+                      <span class="p-navigation__dropdown-item u-text-muted" id="nav-user-email"></span>
+                    </li>
+                    <li>
                       <button type="button" class="p-navigation__dropdown-item" id="logout-btn">
                         Sign out
                       </button>
@@ -88,23 +91,26 @@
               <div class="p-card">
                 <div class="p-card__content">
                   <h1 class="p-heading--3">Support login</h1>
-                  <form id="login-form" class="p-form">
-                    <div class="p-form__group">
-                      <label for="password" class="p-form__label">Password</label>
-                      <input
-                        type="password"
-                        id="password"
-                        class="p-form__control"
-                        required
-                        autocomplete="current-password"
-                      />
-                    </div>
-                    <button type="submit" class="p-button--positive">Sign in</button>
-                  </form>
-                  <div id="login-error" class="p-notification--negative u-hide u-sv1">
+                  <p class="u-sv1">
+                    Sign in with your Ubuntu One account. Only people on the admin list can use the
+                    support dashboard.
+                  </p>
+                  <div id="login-denied" class="p-notification--negative u-hide">
                     <div class="p-notification__content">
-                      <p class="p-notification__message">Invalid password.</p>
+                      <p class="p-notification__title">No access</p>
+                      <p class="p-notification__message">
+                        Signed in as <strong id="login-denied-user"></strong>.
+                        <span id="login-denied-text"></span>
+                      </p>
                     </div>
+                  </div>
+                  <div class="helpdesk-admin-login__actions">
+                    <a class="p-button--positive" id="login-btn" href="/auth/sso/login?next=/admin">
+                      Sign in with Ubuntu One
+                    </a>
+                    <button type="button" class="p-button u-hide" id="login-switch-btn">
+                      Sign out
+                    </button>
                   </div>
                 </div>
               </div>
@@ -177,6 +183,18 @@
                   Audit log
                 </button>
               </li>
+              <li class="p-tabs__item" role="presentation">
+                <button
+                  type="button"
+                  class="p-tabs__link"
+                  role="tab"
+                  id="tab-admins-btn"
+                  aria-selected="false"
+                  aria-controls="tab-admins"
+                >
+                  Admins
+                </button>
+              </li>
             </ul>
           </nav>
 
@@ -236,6 +254,7 @@
                           <input
                             type="text"
                             id="admin-message-input"
+                            maxlength="2000"
                             class="p-form__control"
                             placeholder="Reply to participant…"
                             required
@@ -367,6 +386,62 @@
                   No guides yet. The Guides and FAQ section is hidden on the home page until you
                   add and enable one.
                 </p>
+              </div>
+            </div>
+          </div>
+
+          <div
+            id="tab-admins"
+            class="helpdesk-admin-tab-panel u-hide"
+            role="tabpanel"
+            aria-labelledby="tab-admins-btn"
+            hidden
+          >
+            <div class="p-card">
+              <div class="p-card__content">
+                <h2 class="p-heading--5">Support admins</h2>
+                <p class="u-text-muted u-sv1">
+                  People who can sign in to this dashboard with Ubuntu SSO. Use the email address
+                  on their Ubuntu One account. The first time someone signs in, their Ubuntu One
+                  account is linked to the email, so nobody else can use it.
+                </p>
+                <form id="admin-add-form" class="p-form helpdesk-admin-audit__filters">
+                  <div class="p-form__group helpdesk-admin-audit__search">
+                    <label for="admin-add-email" class="p-form__label">Email address</label>
+                    <input
+                      type="email"
+                      id="admin-add-email"
+                      class="p-form__control"
+                      placeholder="name@canonical.com"
+                      autocomplete="off"
+                      required
+                    />
+                  </div>
+                  <div class="helpdesk-admin-audit__actions">
+                    <button type="submit" class="p-button--positive">Add admin</button>
+                  </div>
+                </form>
+                <div id="admins-error" class="p-notification--negative u-hide">
+                  <div class="p-notification__content">
+                    <p class="p-notification__message" id="admins-error-text"></p>
+                  </div>
+                </div>
+                <div id="admins-saved" class="p-notification--positive u-hide">
+                  <div class="p-notification__content">
+                    <p class="p-notification__message" id="admins-saved-text"></p>
+                  </div>
+                </div>
+                <table class="helpdesk-admin-guides__table" aria-label="Admins">
+                  <thead>
+                    <tr>
+                      <th>Email</th>
+                      <th>Added</th>
+                      <th>Status</th>
+                      <th class="helpdesk-admin-guides__actions-cell">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admins-list"></tbody>
+                </table>
               </div>
             </div>
           </div>

@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
 import cookieParser from 'cookie-parser';
-import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -10,13 +9,13 @@ import { WebSocketServer } from 'ws';
 import http from 'http';
 import proxyaddr from 'proxy-addr';
 import * as db from './db.js';
+import { rateLimit } from './rate-limit.js';
 import {
   AUDIT_CATEGORIES,
   MAX_AUDIT_ENTRIES,
   auditCsv,
   queryAudit,
   recordAudit,
-  sessionTag,
 } from './audit.js';
 import {
   initSettings,
@@ -38,6 +37,10 @@ import {
   moveGuide,
   updateTelegram,
   normalizeTelegramProxy,
+  checkAdmin,
+  getAdmins,
+  addAdmin,
+  removeAdmin,
   exportHelpdeskData,
   importHelpdeskData,
 } from './settings.js';
@@ -65,13 +68,12 @@ const APP_VERSION = JSON.parse(
 ).version;
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'helpdesk';
-const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret';
 initSettings();
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+// Clients only send small typing frames; refuse anything large.
+const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 4 * 1024 });
 
 // Behind a reverse proxy, honour X-Forwarded-Proto/Host so Ubuntu SSO return URLs are correct.
 if (process.env.TRUST_PROXY) {
@@ -79,16 +81,57 @@ if (process.env.TRUST_PROXY) {
   app.set('trust proxy', /^\d+$/.test(value) ? Number(value) : value === 'true' ? true : value);
 }
 
+app.disable('x-powered-by');
+
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
+  next();
+});
+
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
-const sessions = new Map();
+/** True when a browser request comes from another site (CSRF / cross-site WebSocket). */
+function isCrossSite(headers) {
+  // Modern browsers say directly whether a request is same-origin.
+  const fetchSite = headers['sec-fetch-site'];
+  if (fetchSite) return !['same-origin', 'none'].includes(fetchSite);
+  // Older browsers: compare Origin with the host. Non-browser clients send neither.
+  const origin = headers.origin;
+  if (!origin) return false;
+  try {
+    const { host } = new URL(origin);
+    return host !== headers.host && host !== headers['x-forwarded-host'];
+  } catch {
+    return true;
+  }
+}
 
-/** Who is making a request: an admin session, an Ubuntu SSO user, or anonymous. */
-function describeActor(token, ssoUser) {
-  if (token && sessions.has(token)) return `admin (${sessionTag(token)})`;
-  if (ssoUser) return ssoUser.email || ssoUser.nickname || ssoDisplayName(ssoUser);
-  return 'anonymous';
+// Reject cross-site state-changing requests. The Ubuntu SSO callback is the one
+// cross-site POST we expect (login.ubuntu.com may POST back to us).
+app.use((req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  if (req.path === '/auth/sso/callback') return next();
+  if (isCrossSite(req.headers)) {
+    req.audit = { action: 'http.cross_site_blocked', details: { origin: req.get('origin') } };
+    return res.status(403).json({ error: 'Cross-site request blocked' });
+  }
+  next();
+});
+
+/** The signed-in Ubuntu SSO user if they are a support admin, else null. */
+function adminUser(user) {
+  return user && checkAdmin(user).ok ? user : null;
+}
+
+/** Who is making a request, for the audit log. */
+function describeActor(ssoUser) {
+  if (!ssoUser) return 'anonymous';
+  const name = ssoUser.email || ssoUser.nickname || ssoDisplayName(ssoUser);
+  return adminUser(ssoUser) ? `${name} (admin)` : name;
 }
 
 /** Attach a meaningful audit event to this request; it is written when the response finishes. */
@@ -107,7 +150,7 @@ function isPageView(req) {
 
 // Audit every page view, every change, and every denied request (with the client IP).
 app.use((req, res, next) => {
-  const actor = describeActor(req.cookies?.admin_session, getSsoUser(req));
+  const actor = describeActor(getSsoUser(req));
   res.on('finish', () => {
     const base = {
       ip: req.ip,
@@ -138,7 +181,8 @@ app.use((req, res, next) => {
   const match = /^(.*)\.html$/.exec(req.path);
   if (!match) return next();
   const params = new URLSearchParams(req.query);
-  let target = match[1] === '/index' ? '/' : match[1];
+  // Collapse leading slashes so //evil.com/x.html cannot become an off-site redirect.
+  let target = match[1] === '/index' ? '/' : `/${match[1].replace(/^[/\\]+/, '')}`;
   if (target === '/chat' && params.get('id')) {
     target = `/chat/${encodeURIComponent(params.get('id'))}`;
     params.delete('id');
@@ -149,19 +193,21 @@ app.use((req, res, next) => {
 
 app.use(express.static(publicDir, { extensions: ['html'] }));
 
-function signSession() {
-  return crypto.randomBytes(32).toString('hex');
-}
-
 function isAdmin(req) {
-  const token = req.cookies?.admin_session;
-  return token && sessions.has(token);
+  return Boolean(adminUser(getSsoUser(req)));
 }
 
 function requireAdmin(req, res, next) {
-  if (!isAdmin(req)) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  const user = getSsoUser(req);
+  if (!user) return res.status(401).json({ error: 'Sign in with Ubuntu SSO' });
+  const result = checkAdmin(user);
+  if (!result.ok) {
+    if (result.reason === 'identity-mismatch') {
+      req.audit = { action: 'admin.identity_mismatch', details: { email: user.email, account: user.id } };
+    }
+    return res.status(403).json({ error: 'Your account is not a support admin' });
   }
+  req.admin = user;
   next();
 }
 
@@ -272,12 +318,10 @@ function dropClient(conversationId, client) {
 }
 
 function wsAudit(req, action, details, target) {
-  const cookies = parseCookieHeader(req.headers.cookie);
-  const ssoUser = getSsoUserFromHeaders(req.headers);
   recordAudit({
     action,
     ip: proxyaddr(req, app.get('trust proxy fn')),
-    actor: describeActor(cookies.admin_session, ssoUser),
+    actor: describeActor(getSsoUserFromHeaders(req.headers)),
     target,
     path: '/ws',
     userAgent: req.headers['user-agent'],
@@ -285,11 +329,23 @@ function wsAudit(req, action, details, target) {
   });
 }
 
+// A bad frame from one client (oversized, malformed) must never crash the server.
+wss.on('error', (err) => console.error(`WebSocket server error: ${err.message}`));
+
 wss.on('connection', (ws, req) => {
+  ws.on('error', (err) => {
+    wsAudit(req, 'connection.error', { error: err.message, code: err.code });
+    ws.terminate();
+  });
   const url = new URL(req.url || '', `http://${req.headers.host}`);
   const conversationId = url.searchParams.get('conversationId');
   const role = url.searchParams.get('role');
   const connectedAt = Date.now();
+  if (isCrossSite(req.headers)) {
+    wsAudit(req, 'connection.denied', { role, reason: 'cross-site', origin: req.headers.origin });
+    ws.close(4003, 'Cross-site connection refused');
+    return;
+  }
   if (!conversationId) {
     ws.close(4000, 'conversationId required');
     return;
@@ -303,8 +359,7 @@ wss.on('connection', (ws, req) => {
     ws.close(4004, 'Conversation not found');
     return;
   }
-  const adminToken = parseCookieHeader(req.headers.cookie).admin_session;
-  if (role === 'support' && !(adminToken && sessions.has(adminToken))) {
+  if (role === 'support' && !adminUser(getSsoUserFromHeaders(req.headers))) {
     wsAudit(req, 'connection.denied', { role, room: conversation.room }, conversationId);
     ws.close(4001, 'Unauthorized');
     return;
@@ -354,17 +409,22 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-function parseCookieHeader(header) {
-  const out = {};
-  for (const part of String(header || '').split(';')) {
-    const index = part.indexOf('=');
-    if (index === -1) continue;
-    out[part.slice(0, index).trim()] = part.slice(index + 1).trim();
-  }
-  return out;
-}
+const MAX_MESSAGE_LENGTH = 2000;
+const MAX_NAME_LENGTH = 80;
+const TEN_MINUTES = 10 * 60 * 1000;
 
-app.get('/auth/sso/login', (req, res) => {
+// Generous limits: everyone at the venue can share one public IP.
+const limitSsoLogin = rateLimit({ name: 'sso-login', limit: 60, windowMs: TEN_MINUTES });
+const limitChatStart = rateLimit({ name: 'chat-start', limit: 60, windowMs: TEN_MINUTES });
+const limitMessages = rateLimit({
+  name: 'chat-message',
+  limit: 20,
+  windowMs: 60 * 1000,
+  key: (req) => req.params.id,
+});
+const limitTelegramTest = rateLimit({ name: 'telegram-test', limit: 10, windowMs: 60 * 1000 });
+
+app.get('/auth/sso/login', limitSsoLogin, (req, res) => {
   audit(req, 'sso.login_start', { next: req.query.next });
   startSsoLogin(req, res);
 });
@@ -419,7 +479,7 @@ app.get('/api/availability', (_req, res) => {
   res.json(getAvailability());
 });
 
-app.post('/api/conversations', (req, res) => {
+app.post('/api/conversations', limitChatStart, (req, res) => {
   const { room, participantName } = req.body || {};
   const availability = getAvailability();
   if (!availability.open) {
@@ -437,7 +497,10 @@ app.post('/api/conversations', (req, res) => {
     audit(req, 'chat.start_denied', { room, reason: 'Unknown room' });
     return res.status(400).json({ error: 'Invalid room' });
   }
-  const name = String(participantName || '').trim() || (ssoUser ? ssoDisplayName(ssoUser) : '');
+  const name = (String(participantName || '').trim() || (ssoUser ? ssoDisplayName(ssoUser) : '')).slice(
+    0,
+    MAX_NAME_LENGTH
+  );
   const conversation = db.createConversation(room, name, ssoUser);
   audit(req, 'chat.start', { room, name }, conversation.id);
   res.status(201).json({ conversation });
@@ -458,14 +521,19 @@ app.get('/api/conversations/:id/messages', (req, res) => {
   res.json({ messages: db.getMessages(req.params.id) });
 });
 
-app.post('/api/conversations/:id/messages', async (req, res) => {
+app.post('/api/conversations/:id/messages', limitMessages, async (req, res) => {
   const { body, sender } = req.body || {};
   const conversation = db.getConversation(req.params.id);
   if (!conversation) return res.status(404).json({ error: 'Not found' });
   if (conversation.status === 'resolved') {
     return res.status(400).json({ error: 'Conversation is resolved' });
   }
-  if (!body?.trim()) return res.status(400).json({ error: 'Message required' });
+  if (typeof body !== 'string' || !body.trim()) {
+    return res.status(400).json({ error: 'Message required' });
+  }
+  if (body.length > MAX_MESSAGE_LENGTH) {
+    return res.status(400).json({ error: `Messages can be up to ${MAX_MESSAGE_LENGTH} characters` });
+  }
   if (!['participant', 'support'].includes(sender)) {
     return res.status(400).json({ error: 'Invalid sender' });
   }
@@ -545,36 +613,54 @@ app.get('/api/admin/conversations', requireAdmin, (req, res) => {
   res.json({ conversations });
 });
 
-app.post('/api/admin/login', (req, res) => {
-  const { password } = req.body || {};
-  if (password !== ADMIN_PASSWORD) {
-    audit(req, 'admin.login_failed', { reason: 'Wrong password' });
-    return res.status(401).json({ error: 'Invalid password' });
-  }
-  const token = signSession();
-  sessions.set(token, { createdAt: Date.now() });
-  req.auditActor = `admin (${sessionTag(token)})`;
-  audit(req, 'admin.login');
-  res.cookie('admin_session', token, {
-    httpOnly: true,
-    sameSite: 'strict',
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-    signed: false,
-  });
-  res.json({ ok: true });
-});
-
-app.post('/api/admin/logout', (req, res) => {
-  const token = req.cookies?.admin_session;
-  audit(req, 'admin.logout');
-  if (token) sessions.delete(token);
-  res.clearCookie('admin_session');
-  res.json({ ok: true });
-});
+const ADMIN_DENIED_MESSAGES = {
+  'not-admin': 'Your Ubuntu One account is not a support admin.',
+  'no-email': 'Your Ubuntu One account did not share an email address.',
+  'identity-mismatch':
+    'This email is linked to a different Ubuntu One account. Ask an admin to remove and re-add you.',
+};
 
 app.get('/api/admin/me', (req, res) => {
-  res.json({ authenticated: isAdmin(req) });
+  const user = getSsoUser(req);
+  const result = user ? checkAdmin(user) : { ok: false, reason: 'signed-out' };
+  res.json({
+    authenticated: result.ok,
+    signedIn: Boolean(user),
+    user: publicSsoUser(user),
+    reason: result.ok ? null : result.reason,
+    message: result.ok ? null : ADMIN_DENIED_MESSAGES[result.reason] || null,
+  });
+});
+
+app.get('/api/admin/admins', requireAdmin, (_req, res) => {
+  res.json({ admins: getAdmins() });
+});
+
+app.post('/api/admin/admins', requireAdmin, (req, res) => {
+  const email = String(req.body?.email ?? '');
+  try {
+    const admins = addAdmin(email, req.admin.email);
+    audit(req, 'admin.add', { email: email.trim().toLowerCase() });
+    res.status(201).json({ admins });
+  } catch (err) {
+    audit(req, 'admin.add_failed', { email, error: err.message });
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/admins/:email', requireAdmin, (req, res) => {
+  const email = String(req.params.email).trim().toLowerCase();
+  if (email === String(req.admin.email).toLowerCase()) {
+    return res.status(400).json({ error: 'You cannot remove yourself. Ask another admin to do it.' });
+  }
+  try {
+    const admins = removeAdmin(email);
+    if (!admins) return res.status(404).json({ error: 'Admin not found' });
+    audit(req, 'admin.remove', { email });
+    res.json({ admins });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 app.get('/api/admin/settings', requireAdmin, (_req, res) => {
@@ -585,7 +671,7 @@ app.get('/api/admin/telegram/logs', requireAdmin, (_req, res) => {
   res.json({ logs: getTelegramLogs() });
 });
 
-app.post('/api/admin/telegram/test', requireAdmin, async (req, res) => {
+app.post('/api/admin/telegram/test', requireAdmin, limitTelegramTest, async (req, res) => {
   const { telegramBotToken, telegramChatId, telegramProxy } = req.body || {};
   const overrides = {};
   if (telegramBotToken !== undefined) overrides.token = telegramBotToken;

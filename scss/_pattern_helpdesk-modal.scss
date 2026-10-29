@@ -26,6 +26,18 @@
     }
   }
 
+  .helpdesk-admin-login__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $sph--small;
+    margin-top: $spv--large;
+
+    .p-button,
+    [class*="p-button--"] {
+      margin: 0;
+    }
+  }
+
   .helpdesk-modal__footer-actions {
     display: flex;
     flex-wrap: wrap;

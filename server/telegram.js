@@ -204,7 +204,13 @@ export async function sendTelegramTestMessage(overrides = {}) {
 }
 
 export function buildAdminChatUrl(baseUrl, conversationId) {
-  const root = String(baseUrl || '').trim().replace(/\/$/, '');
+  // The help URL may include a path such as /location; admin links live at the site root.
+  let root = String(baseUrl || '').trim().replace(/\/$/, '');
+  try {
+    root = new URL(root).origin;
+  } catch {
+    // keep as-is
+  }
   const id = encodeURIComponent(conversationId);
   return `${root}/admin?tab=conversations&conversation=${id}`;
 }

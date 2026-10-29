@@ -1,5 +1,5 @@
 import * as db from './db.js';
-import { DEFAULT_GUIDES, normalizeGuide, normalizeGuides } from './guides.js';
+import { DEFAULT_GUIDES, loadStoredGuides, normalizeGuide, normalizeGuides } from './guides.js';
 
 const DEFAULT_ROOMS = ['Main Hall', 'Workshop A', 'Workshop B'];
 
@@ -24,6 +24,13 @@ let schedule = { ...DEFAULT_SCHEDULE };
 let wifi = { enabled: true, ssid: '', password: '' };
 let helpBaseUrl = '';
 let ssoRequired = false;
+
+export const DEFAULT_ADMIN_EMAIL = 'finn.rawles@canonical.com';
+let admins = [defaultAdmin()];
+
+function defaultAdmin() {
+  return { email: DEFAULT_ADMIN_EMAIL, addedBy: 'default', addedAt: null, openidId: null };
+}
 let guides = DEFAULT_GUIDES.map((g) => ({ ...g }));
 
 function isValidTimeZone(timeZone) {
@@ -234,16 +241,16 @@ function applyStoredSettings(stored) {
 
   ssoRequired = stored.sso_required === true;
 
-  let storedGuides = null;
-  if (Array.isArray(stored.guides)) {
-    try {
-      storedGuides = normalizeGuides(stored.guides);
-    } catch {
-      // fall back to the current guides if stored data is invalid
-    }
+  const storedAdmins = Array.isArray(stored.admins) ? normalizeAdmins(stored.admins) : [];
+  if (storedAdmins.length) {
+    admins = storedAdmins;
+  } else {
+    admins = [defaultAdmin()];
+    db.patchSettings({ admins });
   }
-  if (storedGuides) {
-    guides = storedGuides;
+
+  if (Array.isArray(stored.guides)) {
+    guides = loadStoredGuides(stored.guides);
   } else {
     db.patchSettings({ guides });
   }
@@ -256,6 +263,7 @@ function persistAllSettings() {
     wifi,
     help_base_url: helpBaseUrl,
     sso_required: ssoRequired,
+    admins,
     guides,
     telegram_bot_token: telegramBotToken,
     telegram_chat_id: telegramChatId,
@@ -393,6 +401,89 @@ export function setHelpBaseUrl(url) {
     .replace(/\/$/, '');
   db.patchSettings({ help_base_url: helpBaseUrl });
   return helpBaseUrl;
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function normalizeEmail(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function normalizeAdmins(list) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of list) {
+    const email = normalizeEmail(typeof raw === 'string' ? raw : raw?.email);
+    if (!EMAIL_PATTERN.test(email) || seen.has(email)) continue;
+    seen.add(email);
+    out.push({
+      email,
+      addedBy: typeof raw === 'object' ? String(raw.addedBy || '') : '',
+      addedAt: typeof raw === 'object' ? raw.addedAt || null : null,
+      openidId: typeof raw === 'object' ? raw.openidId || null : null,
+    });
+  }
+  return out;
+}
+
+/** Admin emails from the ADMIN_EMAILS env var always have access (lock-out recovery). */
+function envAdminEmails() {
+  return String(process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map(normalizeEmail)
+    .filter((email) => EMAIL_PATTERN.test(email));
+}
+
+export function getAdmins() {
+  const list = admins.map((a) => ({ ...a, source: 'settings' }));
+  for (const email of envAdminEmails()) {
+    if (!list.some((a) => a.email === email)) {
+      list.push({ email, addedBy: 'ADMIN_EMAILS', addedAt: null, openidId: null, source: 'env' });
+    }
+  }
+  return list;
+}
+
+/**
+ * Check whether an Ubuntu SSO user is a support admin. The first sign-in for an
+ * admin email pins its Ubuntu SSO account, so another account that later
+ * claims the same email is refused.
+ */
+export function checkAdmin(user) {
+  const email = normalizeEmail(user?.email);
+  if (!user?.id || !email) return { ok: false, reason: 'no-email' };
+  const entry = admins.find((a) => a.email === email);
+  if (entry) {
+    if (entry.openidId && entry.openidId !== user.id) return { ok: false, reason: 'identity-mismatch' };
+    if (!entry.openidId) {
+      entry.openidId = user.id;
+      db.patchSettings({ admins });
+    }
+    return { ok: true };
+  }
+  if (envAdminEmails().includes(email)) return { ok: true };
+  return { ok: false, reason: 'not-admin' };
+}
+
+export function addAdmin(email, addedBy) {
+  const normalized = normalizeEmail(email);
+  if (!EMAIL_PATTERN.test(normalized)) throw new Error('Enter a valid email address');
+  if (admins.some((a) => a.email === normalized)) throw new Error('That person is already an admin');
+  admins = [
+    ...admins,
+    { email: normalized, addedBy, addedAt: new Date().toISOString(), openidId: null },
+  ];
+  db.patchSettings({ admins });
+  return getAdmins();
+}
+
+export function removeAdmin(email) {
+  const normalized = normalizeEmail(email);
+  if (!admins.some((a) => a.email === normalized)) return null;
+  if (admins.length === 1) throw new Error('At least one admin is required');
+  admins = admins.filter((a) => a.email !== normalized);
+  db.patchSettings({ admins });
+  return getAdmins();
 }
 
 export function getSsoRequired() {

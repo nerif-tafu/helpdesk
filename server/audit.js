@@ -17,7 +17,7 @@ export const AUDIT_CATEGORIES = {
   page: 'Page views',
   chat: 'Chats',
   connection: 'Live connections',
-  admin: 'Support login',
+  admin: 'Admins & access',
   sso: 'Ubuntu SSO',
   settings: 'Settings',
   guide: 'Guides',
@@ -61,11 +61,6 @@ export function normalizeIp(ip) {
   const value = String(ip || '').trim();
   if (!value) return 'unknown';
   return value.startsWith('::ffff:') ? value.slice(7) : value;
-}
-
-/** Short, stable tag for an admin session token so sessions can be told apart. */
-export function sessionTag(token) {
-  return crypto.createHash('sha256').update(String(token)).digest('hex').slice(0, 8);
 }
 
 function clean(value) {

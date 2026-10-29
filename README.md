@@ -6,16 +6,19 @@ Live chat for conference rooms. Participants use `/`, support uses `/admin`.
 
 ```bash
 cp .env.example .env
-# Set ADMIN_PASSWORD and SESSION_SECRET
 
 npm install
 npm run dev
 ```
 
 - http://localhost:3000 — participants  
-- http://localhost:3000/admin — support (password from `.env`)
+- http://localhost:3000/admin — support (sign in with Ubuntu SSO)
 
 Rooms, WiFi, hours, Telegram, Ubuntu SSO, printouts, and Guides & FAQ are configured in the admin UI. Data is stored in `data/helpdesk.json`.
+
+## Support admins
+
+The support dashboard at `/admin` is Ubuntu SSO only; there is no password. `finn.rawles@canonical.com` is the default admin, and admins can add or remove others in the **Admins** tab. An admin's first sign-in links their email to that Ubuntu One account, so a different account claiming the same email is refused. `ADMIN_EMAILS` grants permanent access from the server side if you ever lock yourself out.
 
 ## Ubuntu SSO
 
@@ -39,8 +42,7 @@ The **Audit log** admin tab records page views, chats, live connections, sign-in
 |----------|---------|
 | `PORT` | Port (default `3000`) |
 | `HOST` | Bind address (default `0.0.0.0`) |
-| `ADMIN_PASSWORD` | Support login |
-| `SESSION_SECRET` | Admin session secret |
+| `ADMIN_EMAILS` | Optional comma-separated emails that always have admin access (lock-out recovery) |
 | `TRUST_PROXY` | Express `trust proxy` value (e.g. `1` or `loopback`) when behind a reverse proxy |
 
 ## Docker
@@ -48,15 +50,13 @@ The **Audit log** admin tab records page views, chats, live connections, sign-in
 Push a version tag to build an image on GHCR:
 
 ```bash
-git tag v1.5.0 && git push origin v1.5.0
+git tag v1.6.0 && git push origin v1.6.0
 ```
 
 ```bash
 docker run -d -p 3000:3000 \
-  -e ADMIN_PASSWORD=change-me \
-  -e SESSION_SECRET=change-me \
   -v helpdesk-data:/app/data \
-  ghcr.io/nerif-tafu/helpdesk:1.5.0
+  ghcr.io/nerif-tafu/helpdesk:1.6.0
 ```
 
 ## Production

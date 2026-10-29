@@ -106,11 +106,19 @@ export async function initHome() {
   });
 }
 
+const SSO_ERRORS = {
+  expired: 'Sign-in session expired. Please try again.',
+  cancelled: 'Ubuntu SSO sign-in was cancelled.',
+  failed: 'Ubuntu SSO sign-in failed.',
+  unverified: 'Ubuntu SSO sign-in could not be verified.',
+};
+
 function applySsoState({ ssoRequired, user }) {
   const params = new URLSearchParams(window.location.search);
   const ssoError = params.get('sso_error');
   if (ssoError) {
-    document.getElementById('sso-error-text').textContent = ssoError;
+    document.getElementById('sso-error-text').textContent =
+      SSO_ERRORS[ssoError] || SSO_ERRORS.failed;
     document.getElementById('sso-error')?.classList.remove('u-hide');
     params.delete('sso_error');
     const qs = params.toString();
@@ -419,8 +427,12 @@ export function initChat() {
   load();
 }
 
+/** Escape text for HTML content and double- or single-quoted attributes. */
 function escapeHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

@@ -115,6 +115,7 @@ export function slugify(value) {
 }
 
 function isSafeUrl(url, { allowRelative = true } = {}) {
+  if (/[\s\\"'<>]/.test(url)) return false;
   if (allowRelative && (url.startsWith('/') || url.startsWith('#')) && !url.startsWith('//')) {
     return true;
   }
@@ -163,6 +164,33 @@ export function normalizeGuides(list) {
     seenSlugs.add(guide.slug);
     return guide;
   });
+}
+
+/**
+ * Load stored guides leniently: a guide whose image URL no longer passes
+ * validation keeps its other content with the image removed, and only guides
+ * that cannot be repaired are skipped, so stored content is never lost wholesale.
+ */
+export function loadStoredGuides(list) {
+  const out = [];
+  const seenSlugs = new Set();
+  for (const raw of list) {
+    let guide = null;
+    try {
+      guide = normalizeGuide(raw);
+    } catch {
+      try {
+        guide = normalizeGuide({ ...raw, imageUrl: '' });
+        console.warn(`Guide "${raw?.title}": image URL removed because it failed validation`);
+      } catch (err) {
+        console.warn(`Guide "${raw?.title}" skipped: ${err.message}`);
+      }
+    }
+    if (!guide || seenSlugs.has(guide.slug)) continue;
+    seenSlugs.add(guide.slug);
+    out.push(guide);
+  }
+  return out;
 }
 
 /** Public card data for the home page. */
