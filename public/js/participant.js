@@ -292,8 +292,13 @@ export function initChat() {
       }
       typing.handleEvent(data);
     };
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (conversation?.status === 'resolved') return;
+      // Access revoked (e.g. SSO now required): re-check, which redirects to sign-in.
+      if (event.code === 4001 || event.code === 4003) {
+        refreshConversation();
+        return;
+      }
       setTimeout(connectWs, 3000);
     };
   }

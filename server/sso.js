@@ -85,9 +85,19 @@ export function getSsoUser(req) {
   return sessionFromToken(req.cookies?.[SESSION_COOKIE]);
 }
 
+/** Session token from a raw HTTP upgrade request (WebSocket), or null. */
+export function ssoTokenFromHeaders(headers) {
+  return parseCookieHeader(headers?.cookie)[SESSION_COOKIE] || null;
+}
+
+/** Signed-in Ubuntu SSO user for a session token, or null if missing or expired. */
+export function getSsoUserByToken(token) {
+  return sessionFromToken(token);
+}
+
 /** Signed-in Ubuntu SSO user for a raw HTTP upgrade request (WebSocket), or null. */
 export function getSsoUserFromHeaders(headers) {
-  return sessionFromToken(parseCookieHeader(headers?.cookie)[SESSION_COOKIE]);
+  return sessionFromToken(ssoTokenFromHeaders(headers));
 }
 
 /** Redirect the browser to login.ubuntu.com. */
@@ -241,11 +251,15 @@ export async function handleCallback(req, res) {
   }
 }
 
+/** Sign out; returns the ended session token so live connections can be closed. */
 export function logout(req, res) {
   const token = req.cookies?.[SESSION_COOKIE];
   if (token) sessions.delete(token);
   res.clearCookie(SESSION_COOKIE);
+  return token || null;
 }
+
+setInterval(() => pruneExpired(), 10 * 60 * 1000).unref();
 
 /** Display name for a signed-in user. */
 export function ssoDisplayName(user) {

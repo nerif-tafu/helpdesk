@@ -236,7 +236,12 @@ function applyStoredSettings(stored) {
   }
 
   if (stored.help_base_url != null) {
-    helpBaseUrl = String(stored.help_base_url).trim().replace(/\/$/, '');
+    try {
+      helpBaseUrl = validateBaseUrl(stored.help_base_url, 'Help desk URL');
+    } catch (err) {
+      console.warn(`Ignoring stored help desk URL: ${err.message}`);
+      helpBaseUrl = '';
+    }
   }
 
   ssoRequired = stored.sso_required === true;
@@ -278,7 +283,6 @@ export function initSettings() {
 }
 
 export function reloadSettings() {
-  db.reloadStore();
   const stored = db.getSettings();
   applyStoredSettings(stored);
 }
@@ -395,10 +399,26 @@ export function getHelpBaseUrl() {
   return helpBaseUrl;
 }
 
+/** An absolute http(s) URL without credentials, or '' (throws otherwise). */
+function validateBaseUrl(value, label) {
+  const url = String(value ?? '').trim().replace(/\/$/, '');
+  if (!url) return '';
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`${label} must be a full URL such as https://help.example.com`);
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`${label} must start with http:// or https://`);
+  }
+  if (parsed.username || parsed.password) throw new Error(`${label} must not contain a username or password`);
+  if (/[\s\\"'<>]/.test(url)) throw new Error(`${label} contains invalid characters`);
+  return url;
+}
+
 export function setHelpBaseUrl(url) {
-  helpBaseUrl = String(url ?? '')
-    .trim()
-    .replace(/\/$/, '');
+  helpBaseUrl = validateBaseUrl(url, 'Help desk URL');
   db.patchSettings({ help_base_url: helpBaseUrl });
   return helpBaseUrl;
 }
@@ -540,9 +560,28 @@ export function moveGuide(id, direction) {
   return saveGuides(next);
 }
 
-export function resolveHelpBaseUrl(req) {
-  if (helpBaseUrl) return helpBaseUrl;
-  if (req) {
+function publicUrlFromEnv() {
+  try {
+    return validateBaseUrl(process.env.PUBLIC_URL, 'PUBLIC_URL');
+  } catch (err) {
+    console.warn(err.message);
+    return '';
+  }
+}
+
+/** The configured public address (help desk URL setting, then PUBLIC_URL), or ''. */
+export function getCanonicalBaseUrl() {
+  return helpBaseUrl || publicUrlFromEnv();
+}
+
+/**
+ * Base URL for links. Falls back to the request's Host header only when asked,
+ * which callers must do only for trusted (admin) requests: a visitor controls Host.
+ */
+export function resolveHelpBaseUrl(req, { allowRequestHost = false } = {}) {
+  const canonical = getCanonicalBaseUrl();
+  if (canonical) return canonical;
+  if (req && allowRequestHost) {
     const host = req.get('host');
     const proto = req.protocol || 'http';
     return `${proto}://${host}`;

@@ -243,7 +243,8 @@ const PRINT_STYLES = `
 
 export async function renderPrintDocument(roomNames, req) {
   const wifi = getWifi();
-  const helpBase = resolveHelpBaseUrl(req);
+  // Printouts are admin-only requests, so the admin's own Host is an acceptable fallback.
+  const helpBase = resolveHelpBaseUrl(req, { allowRequestHost: true });
   const pages = await Promise.all(
     roomNames.map((name) => renderRoomPage(name, { wifi, helpBase }))
   );

@@ -228,8 +228,10 @@ export function formatNewMessageNotification({
   sender,
   body,
 }) {
-  const adminUrl = escapeMarkdownV2LinkUrl(buildAdminChatUrl(baseUrl, conversationId));
-  const roomLink = `[${escapeMarkdownV2(room)}](${adminUrl})`;
+  // Without a configured public URL, name the room without a link.
+  const roomLink = baseUrl
+    ? `[${escapeMarkdownV2(room)}](${escapeMarkdownV2LinkUrl(buildAdminChatUrl(baseUrl, conversationId))})`
+    : `*${escapeMarkdownV2(room)}*`;
   let header = `${roomLink} 💬`;
   if (sender === 'support') {
     header += ` *Support*:`;

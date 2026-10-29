@@ -16,6 +16,7 @@ import {
   auditCsv,
   queryAudit,
   recordAudit,
+  flushAuditSync,
 } from './audit.js';
 import {
   initSettings,
@@ -23,7 +24,7 @@ import {
   setRooms,
   getAdminSettingsView,
   getAvailability,
-  resolveHelpBaseUrl,
+  getCanonicalBaseUrl,
   setSchedule,
   setWifi,
   setHelpBaseUrl,
@@ -50,6 +51,8 @@ import { renderGuidePage, renderGuideNotFoundPage, toGuideCard } from './guides.
 import {
   getSsoUser,
   getSsoUserFromHeaders,
+  getSsoUserByToken,
+  ssoTokenFromHeaders,
   startLogin as startSsoLogin,
   handleCallback as handleSsoCallback,
   logout as ssoLogout,
@@ -225,8 +228,33 @@ function canParticipantAccess(conversation, user) {
   return !getSsoRequired() || Boolean(user);
 }
 
+/**
+ * While SSO is required, the first signed-in person to use a guest chat (one
+ * started before SSO, without an owner) claims it; afterwards only that
+ * Ubuntu One account can use it.
+ */
+function claimGuestChat(conversation, user, auditReq) {
+  if (conversation.participant_sso || !getSsoRequired() || !user) return conversation;
+  const claimed = db.claimConversation(conversation.id, user);
+  recordAudit({
+    action: 'chat.claim',
+    ip: auditReq.ip ?? proxyaddr(auditReq, app.get('trust proxy fn')),
+    actor: describeActor(user),
+    target: conversation.id,
+    path: auditReq.originalUrl?.split('?')[0] ?? '/ws',
+    userAgent: auditReq.headers['user-agent'],
+    details: { room: conversation.room },
+  });
+  return claimed;
+}
+
 function requireConversationAccess(req, res, conversation) {
-  if (isAdmin(req) || canParticipantAccess(conversation, getSsoUser(req))) return true;
+  if (isAdmin(req)) return true;
+  const user = getSsoUser(req);
+  if (canParticipantAccess(conversation, user)) {
+    claimGuestChat(conversation, user, req);
+    return true;
+  }
   res.status(getSsoUser(req) ? 403 : 401).json({
     error: 'Sign in with Ubuntu SSO to access this chat',
     ssoRequired: true,
@@ -306,6 +334,35 @@ function broadcastPresence(conversationId) {
   }
 }
 
+/**
+ * Re-check every live connection against current sessions and settings, and
+ * close any that are no longer allowed (signed out, session expired, admin
+ * removed, or SSO now required).
+ */
+function revalidateSockets(reason) {
+  for (const [conversationId, set] of clients) {
+    const conversation = db.getConversation(conversationId);
+    for (const client of [...set]) {
+      const user = getSsoUserByToken(client.ssoToken);
+      const allowed =
+        conversation &&
+        (client.sender === 'support'
+          ? Boolean(adminUser(user))
+          : canParticipantAccess(conversation, user));
+      if (allowed) continue;
+      wsAudit(
+        client.req,
+        'connection.revoked',
+        { role: client.sender, room: conversation?.room, reason },
+        conversationId
+      );
+      client.ws.close(4001, 'Access revoked');
+    }
+  }
+}
+
+setInterval(() => revalidateSockets('periodic check'), 30 * 1000).unref();
+
 function dropClient(conversationId, client) {
   const set = clients.get(conversationId);
   if (!set) return;
@@ -364,13 +421,16 @@ wss.on('connection', (ws, req) => {
     ws.close(4001, 'Unauthorized');
     return;
   }
-  if (role === 'participant' && !canParticipantAccess(conversation, getSsoUserFromHeaders(req.headers))) {
+  const wsUser = getSsoUserFromHeaders(req.headers);
+  if (role === 'participant' && canParticipantAccess(conversation, wsUser)) {
+    claimGuestChat(conversation, wsUser, req);
+  } else if (role === 'participant') {
     wsAudit(req, 'connection.denied', { role, room: conversation.room }, conversationId);
     ws.close(4001, 'Unauthorized');
     return;
   }
   wsAudit(req, 'connection.open', { role, room: conversation.room }, conversationId);
-  const client = { ws, sender: role };
+  const client = { ws, sender: role, req, ssoToken: ssoTokenFromHeaders(req.headers) };
   if (!clients.has(conversationId)) clients.set(conversationId, new Set());
   clients.get(conversationId).add(client);
 
@@ -442,6 +502,7 @@ app.post('/auth/sso/callback', express.urlencoded({ extended: false }), (req, re
 app.post('/auth/sso/logout', (req, res) => {
   audit(req, 'sso.logout');
   ssoLogout(req, res);
+  revalidateSockets('signed out');
   res.json({ ok: true });
 });
 
@@ -547,7 +608,8 @@ app.post('/api/conversations/:id/messages', limitMessages, async (req, res) => {
   relayTyping(req.params.id, sender, false);
   const telegram = await notifyTelegram(
     formatNewMessageNotification({
-      baseUrl: resolveHelpBaseUrl(req),
+      // Never build links from a visitor's Host header.
+      baseUrl: getCanonicalBaseUrl(),
       room: conversation.room,
       conversationId: conversation.id,
       participantName: conversation.participant_name,
@@ -657,6 +719,7 @@ app.delete('/api/admin/admins/:email', requireAdmin, (req, res) => {
     const admins = removeAdmin(email);
     if (!admins) return res.status(404).json({ error: 'Admin not found' });
     audit(req, 'admin.remove', { email });
+    revalidateSockets('admin removed');
     res.json({ admins });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -774,7 +837,7 @@ app.delete('/api/admin/guides/:id', requireAdmin, (req, res) => {
   res.json({ guides: getGuides() });
 });
 
-app.get('/api/admin/data/export', requireAdmin, (_req, res) => {
+app.get('/api/admin/data/export', requireAdmin, (req, res) => {
   const snapshot = exportHelpdeskData();
   const filename = `helpdesk-export-${snapshot.exportedAt.slice(0, 10)}.json`;
   audit(req, 'data.export', {
@@ -794,6 +857,7 @@ app.post('/api/admin/data/import', requireAdmin, (req, res) => {
   try {
     importHelpdeskData(data, { settingsOnly: Boolean(settingsOnly) });
     audit(req, 'data.import', { mode: settingsOnly ? 'settings only' : 'all data' });
+    revalidateSockets('data imported');
     res.json({ ok: true, ...getAdminSettingsView() });
   } catch (err) {
     audit(req, 'data.import_failed', { error: err.message });
@@ -853,6 +917,7 @@ app.put('/api/admin/settings', requireAdmin, (req, res) => {
     }
     if (ssoRequired !== undefined) {
       setSsoRequired(ssoRequired);
+      revalidateSockets('SSO requirement changed');
     }
     if (scheduleBody !== undefined) {
       if (!scheduleBody || typeof scheduleBody !== 'object') {
@@ -896,6 +961,15 @@ app.get('/api/admin/audit/export', requireAdmin, (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="helpdesk-audit-${stamp}.csv"`);
   res.send(auditCsv({ category, q }));
 });
+
+// Flush buffered audit entries and pending chat data before exiting.
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.once(signal, () => {
+    db.flushSync();
+    flushAuditSync();
+    process.exit(0);
+  });
+}
 
 function listAccessUrls(port) {
   const urls = new Set([`http://localhost:${port}`]);

@@ -51,9 +51,52 @@ function writeStoreToDisk(next) {
   fs.renameSync(tmp, DB_PATH);
 }
 
+// Writes are coalesced: memory is authoritative, and bursts of changes become a
+// single background save shortly after, so public traffic cannot force a full
+// synchronous rewrite of the store per request. flushSync() runs on shutdown.
+const SAVE_DELAY_MS = 250;
+let dirty = false;
+let saving = false;
+let saveTimer = null;
+
+function scheduleSave() {
+  if (saveTimer || saving) return;
+  saveTimer = setTimeout(saveInBackground, SAVE_DELAY_MS);
+}
+
+async function saveInBackground() {
+  saveTimer = null;
+  if (!dirty) return;
+  dirty = false;
+  saving = true;
+  const tmp = `${DB_PATH}.tmp`;
+  try {
+    ensureDataDir();
+    await fs.promises.writeFile(tmp, `${JSON.stringify(store, null, 2)}\n`, 'utf8');
+    await fs.promises.rename(tmp, DB_PATH);
+  } catch (err) {
+    console.error(`Saving ${DB_PATH} failed: ${err.message}`);
+    dirty = true;
+  } finally {
+    saving = false;
+    if (dirty) scheduleSave();
+  }
+}
+
+/** Write any pending changes immediately (used on shutdown). */
+export function flushSync() {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = null;
+  // A background save may still be running at shutdown; write the latest state now.
+  if (!dirty && !saving) return;
+  dirty = false;
+  writeStoreToDisk(store);
+}
+
 function persist(next) {
   store = next;
-  writeStoreToDisk(store);
+  dirty = true;
+  scheduleSave();
 }
 
 function now() {
@@ -116,6 +159,25 @@ export function listConversations(status) {
     .map((c) => ({ ...c, needs_reply: conversationNeedsReply(c) }));
   if (status) return list.filter((c) => c.status === status);
   return list;
+}
+
+/** Bind an unowned (guest) conversation to an Ubuntu SSO user. */
+export function claimConversation(conversationId, user) {
+  const conversation = getConversation(conversationId);
+  if (!conversation || conversation.participant_sso || !user?.id) return conversation;
+  const participant_sso = {
+    id: user.id,
+    nickname: user.nickname || null,
+    email: user.email || null,
+    fullname: user.fullname || null,
+  };
+  persist({
+    ...store,
+    conversations: store.conversations.map((c) =>
+      c.id === conversationId ? { ...c, participant_sso } : c
+    ),
+  });
+  return getConversation(conversationId);
 }
 
 export function markSupportJoined(conversationId) {
@@ -232,6 +294,4 @@ export function importSnapshot(payload, { settingsOnly = false } = {}) {
   );
 }
 
-export function reloadStore() {
-  store = readStoreFromDisk();
-}
+

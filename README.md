@@ -42,6 +42,7 @@ The **Audit log** admin tab records page views, chats, live connections, sign-in
 |----------|---------|
 | `PORT` | Port (default `3000`) |
 | `HOST` | Bind address (default `0.0.0.0`) |
+| `PUBLIC_URL` | Optional public address (e.g. `https://help.example.com`) for Telegram links when no help desk URL is set in Settings |
 | `ADMIN_EMAILS` | Optional comma-separated emails that always have admin access (lock-out recovery) |
 | `TRUST_PROXY` | Express `trust proxy` value (e.g. `1` or `loopback`) when behind a reverse proxy |
 
@@ -50,13 +51,13 @@ The **Audit log** admin tab records page views, chats, live connections, sign-in
 Push a version tag to build an image on GHCR:
 
 ```bash
-git tag v1.6.0 && git push origin v1.6.0
+git tag v1.6.1 && git push origin v1.6.1
 ```
 
 ```bash
 docker run -d -p 3000:3000 \
   -v helpdesk-data:/app/data \
-  ghcr.io/nerif-tafu/helpdesk:1.6.0
+  ghcr.io/nerif-tafu/helpdesk:1.6.1
 ```
 
 ## Production

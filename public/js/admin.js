@@ -455,6 +455,10 @@ const AUDIT_LABELS = {
   'data.import': 'Imported data',
   'data.import_failed': 'Import failed',
   'audit.export': 'Downloaded audit log',
+  'audit.throttled': 'Logging throttled',
+  'chat.claim': 'Claimed guest chat',
+  'connection.revoked': 'Connection closed (access revoked)',
+  'connection.error': 'Connection error',
   'http.request': 'Request',
   'http.denied': 'Access denied',
   'system.start': 'Server started',
@@ -1214,6 +1218,11 @@ function connectWs(conversationId) {
   ws = new WebSocket(
     `${protocol}//${window.location.host}/ws?conversationId=${encodeURIComponent(conversationId)}&role=support`
   );
+  const socket = ws;
+  socket.onclose = (event) => {
+    // Signed out elsewhere or removed as admin: show the sign-in screen.
+    if (event.code === 4001 && ws === socket) window.location.reload();
+  };
   if (!typing) {
     typing = bindTyping({
       getWs: () => ws,

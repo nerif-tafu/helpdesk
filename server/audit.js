@@ -31,6 +31,84 @@ export const AUDIT_CATEGORIES = {
 
 let entries = [];
 
+// Lines are appended in the background in batches, so a burst of public
+// requests never blocks the server on disk writes. flushAuditSync() runs on shutdown.
+const FLUSH_DELAY_MS = 500;
+let pending = [];
+let flushTimer = null;
+let writing = Promise.resolve();
+let needsRewrite = false;
+
+function scheduleFlush() {
+  if (!flushTimer) flushTimer = setTimeout(flushInBackground, FLUSH_DELAY_MS);
+}
+
+function flushInBackground() {
+  flushTimer = null;
+  const batch = pending;
+  pending = [];
+  const rewrite = needsRewrite;
+  needsRewrite = false;
+  writing = writing.then(async () => {
+    try {
+      if (rewrite) {
+        const tmp = `${AUDIT_PATH}.tmp`;
+        await fs.promises.writeFile(tmp, entries.map((e) => JSON.stringify(e)).join('\n') + '\n');
+        await fs.promises.rename(tmp, AUDIT_PATH);
+      } else if (batch.length) {
+        await fs.promises.appendFile(AUDIT_PATH, batch.map((e) => `${JSON.stringify(e)}\n`).join(''));
+      }
+    } catch (err) {
+      console.error(`Audit log write failed: ${err.message}`);
+    }
+  });
+}
+
+/** Write any buffered entries immediately (used on shutdown). */
+export function flushAuditSync() {
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = null;
+  try {
+    if (needsRewrite) rewriteFile();
+    else if (pending.length) {
+      fs.appendFileSync(AUDIT_PATH, pending.map((e) => `${JSON.stringify(e)}\n`).join(''));
+    }
+  } catch (err) {
+    console.error(`Audit log write failed: ${err.message}`);
+  }
+  pending = [];
+  needsRewrite = false;
+}
+
+// Cap noisy anonymous events per IP so floods cannot fill the disk.
+// Security-relevant events (sign-ins, settings, chats, blocks) are never capped.
+const NOISY_ACTIONS = new Set(['page.view', 'http.denied', 'connection.open', 'connection.close']);
+const NOISY_LIMIT_PER_MINUTE = 600;
+const noisyCounts = new Map();
+
+function overNoisyLimit(event) {
+  if (!NOISY_ACTIONS.has(event.action)) return false;
+  const now = Date.now();
+  const key = normalizeIp(event.ip);
+  let bucket = noisyCounts.get(key);
+  if (!bucket || bucket.resetAt <= now) {
+    bucket = { count: 0, resetAt: now + 60 * 1000, noted: false };
+    noisyCounts.set(key, bucket);
+  }
+  bucket.count += 1;
+  if (bucket.count <= NOISY_LIMIT_PER_MINUTE) return false;
+  if (!bucket.noted) {
+    bucket.noted = true;
+    return 'note';
+  }
+  return true;
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of noisyCounts) if (bucket.resetAt <= now) noisyCounts.delete(key);
+}, 60 * 1000).unref();
+
 function load() {
   if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
   if (!fs.existsSync(AUDIT_PATH)) return;
@@ -63,9 +141,15 @@ export function normalizeIp(ip) {
   return value.startsWith('::ffff:') ? value.slice(7) : value;
 }
 
+/** Mask credentials in URLs (scheme://user:password@host → scheme://***@host). */
+export function redactUrlCredentials(text) {
+  return String(text).replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, '$1***@');
+}
+
 function clean(value) {
   if (value === undefined || value === null || value === '') return undefined;
-  if (typeof value === 'string') return value.slice(0, 500);
+  if (typeof value === 'string') return redactUrlCredentials(value).slice(0, 500);
+  if (typeof value === 'object') return JSON.parse(redactUrlCredentials(JSON.stringify(value)));
   return value;
 }
 
@@ -79,6 +163,17 @@ function clean(value) {
  * @param {object} [event.details]
  */
 export function recordAudit(event) {
+  const limited = overNoisyLimit(event);
+  if (limited === true) return null;
+  if (limited === 'note') {
+    event = {
+      ...event,
+      action: 'audit.throttled',
+      details: {
+        reason: `More than ${NOISY_LIMIT_PER_MINUTE} page views, connections, or denied requests from this IP in a minute; further ones are not logged until the minute ends`,
+      },
+    };
+  }
   const details = {};
   for (const [key, value] of Object.entries(event.details || {})) {
     const v = clean(value);
@@ -99,15 +194,14 @@ export function recordAudit(event) {
     details: Object.keys(details).length ? details : undefined,
   };
   entries.push(entry);
-  try {
-    fs.appendFileSync(AUDIT_PATH, `${JSON.stringify(entry)}\n`, 'utf8');
-    if (entries.length > TRIM_THRESHOLD) {
-      entries = entries.slice(-MAX_AUDIT_ENTRIES);
-      rewriteFile();
-    }
-  } catch (err) {
-    console.error(`Audit log write failed: ${err.message}`);
+  if (entries.length > TRIM_THRESHOLD) {
+    entries = entries.slice(-MAX_AUDIT_ENTRIES);
+    needsRewrite = true;
+    pending = [];
+  } else if (!needsRewrite) {
+    pending.push(entry);
   }
+  scheduleFlush();
   return entry;
 }
 
