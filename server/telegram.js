@@ -123,7 +123,7 @@ export async function sendTelegramMessage(text, overrides = {}, { kind = 'Notifi
   if (!token || !chatId) {
     const msg = 'Bot token and chat ID must be configured';
     addLog('skip', `${kind} skipped`, msg);
-    return { ok: false, error: msg };
+    return { ok: false, skipped: true, error: msg };
   }
 
   const viaProxy = proxy?.enabled && proxy.url;
@@ -192,7 +192,7 @@ export async function sendTelegramMessage(text, overrides = {}, { kind = 'Notifi
 }
 
 export async function notifyTelegram(text) {
-  await sendTelegramMessage(text);
+  return sendTelegramMessage(text);
 }
 
 export async function sendTelegramTestMessage(overrides = {}) {

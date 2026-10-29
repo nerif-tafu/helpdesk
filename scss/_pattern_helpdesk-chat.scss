@@ -358,6 +358,101 @@
     }
   }
 
+  .helpdesk-admin-audit__filters {
+    align-items: flex-end;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 $sph--large;
+
+    .p-form__group {
+      min-width: 12rem;
+    }
+  }
+
+  .helpdesk-admin-audit__search {
+    flex: 1 1 16rem;
+  }
+
+  .helpdesk-admin-audit__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $sph--small;
+    margin-bottom: $input-margin-bottom;
+
+    .p-button,
+    [class*="p-button--"] {
+      margin: 0;
+    }
+  }
+
+  .helpdesk-admin-audit__table-wrapper {
+    overflow-x: auto;
+  }
+
+  .helpdesk-admin-audit__table {
+    font-size: 0.875rem;
+
+    @media (width >= $breakpoint-large) {
+      th:nth-child(1) {
+        width: 11rem;
+      }
+
+      th:nth-child(2) {
+        width: 9rem;
+      }
+
+      th:nth-child(3) {
+        width: 13rem;
+      }
+
+      th:nth-child(4) {
+        width: 15rem;
+      }
+    }
+
+    td {
+      vertical-align: top;
+    }
+
+    .p-status-label,
+    .p-status-label--negative {
+      white-space: nowrap;
+    }
+
+    @media (width < $breakpoint-large) {
+      thead {
+        display: none;
+      }
+
+      tr {
+        border-bottom: 1px solid $colors--theme--border-default;
+        display: block;
+        padding: $spv--small 0;
+      }
+
+      td {
+        border: 0;
+        display: block;
+        padding-bottom: 0;
+        padding-top: 0;
+      }
+    }
+  }
+
+  .helpdesk-admin-audit__time,
+  .helpdesk-admin-audit__ip {
+    white-space: nowrap;
+  }
+
+  .helpdesk-admin-audit__details {
+    overflow-wrap: anywhere;
+  }
+
+  .helpdesk-admin-audit__ua {
+    display: block;
+    font-size: 0.75rem;
+  }
+
   .helpdesk-admin-guides__content {
     font-family: unquote($font-monospace);
     font-size: 0.875rem;

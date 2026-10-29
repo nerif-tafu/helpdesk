@@ -201,15 +201,18 @@ export async function handleCallback(req, res) {
   res.clearCookie(STATE_COOKIE);
 
   if (!pending || !cookieState || cookieState !== state) {
+    req.audit = { action: 'sso.login_failed', details: { reason: 'Expired or missing sign-in state' } };
     return res.redirect('/?sso_error=' + encodeURIComponent('Sign-in session expired. Please try again.'));
   }
   pendingStates.delete(state);
 
   const mode = req.query['openid.mode'];
   if (mode === 'cancel') {
+    req.audit = { action: 'sso.login_failed', details: { reason: 'Cancelled at login.ubuntu.com' } };
     return res.redirect('/?sso_error=' + encodeURIComponent('Ubuntu SSO sign-in was cancelled.'));
   }
   if (mode !== 'id_res') {
+    req.audit = { action: 'sso.login_failed', details: { reason: `Unexpected mode ${mode}` } };
     return res.redirect('/?sso_error=' + encodeURIComponent('Ubuntu SSO sign-in failed.'));
   }
 
@@ -221,9 +224,15 @@ export async function handleCallback(req, res) {
     const token = crypto.randomBytes(32).toString('hex');
     sessions.set(token, { user, expiresAt: Date.now() + SESSION_TTL_MS });
     res.cookie(SESSION_COOKIE, token, cookieOptions(SESSION_TTL_MS));
+    req.auditActor = user.email || user.nickname || user.id;
+    req.audit = {
+      action: 'sso.login',
+      details: { name: user.fullname, email: user.email, nickname: user.nickname },
+    };
     res.redirect(pending.next);
   } catch (err) {
     console.warn(`Ubuntu SSO sign-in failed: ${err.message}`);
+    req.audit = { action: 'sso.login_failed', details: { reason: err.message } };
     res.redirect('/?sso_error=' + encodeURIComponent('Ubuntu SSO sign-in could not be verified.'));
   }
 }

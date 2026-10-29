@@ -1,6 +1,6 @@
 {
   "name": "conference-helpdesk",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "description": "Event help desk with live chat, admin panel, and Telegram notifications",
   "type": "module",
   "scripts": {
@@ -17,6 +17,7 @@
     "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "proxy-addr": "^2.0.8",
     "qrcode": "^1.5.4",
     "undici": "^7.30.1",
     "vanilla-framework": "^4.51.0",

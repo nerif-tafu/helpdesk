@@ -165,6 +165,18 @@
                   Settings
                 </button>
               </li>
+              <li class="p-tabs__item" role="presentation">
+                <button
+                  type="button"
+                  class="p-tabs__link"
+                  role="tab"
+                  id="tab-audit-btn"
+                  aria-selected="false"
+                  aria-controls="tab-audit"
+                >
+                  Audit log
+                </button>
+              </li>
             </ul>
           </nav>
 
@@ -355,6 +367,70 @@
                   No guides yet. The Guides and FAQ section is hidden on the home page until you
                   add and enable one.
                 </p>
+              </div>
+            </div>
+          </div>
+
+          <div
+            id="tab-audit"
+            class="helpdesk-admin-tab-panel u-hide"
+            role="tabpanel"
+            aria-labelledby="tab-audit-btn"
+            hidden
+          >
+            <div class="p-card">
+              <div class="p-card__content">
+                <h2 class="p-heading--5">Audit log</h2>
+                <p class="u-text-muted u-sv1" id="audit-intro">
+                  Every page view, chat, sign-in, and change on the site, with the visitor’s IP
+                  address. Newest first.
+                </p>
+                <form id="audit-filters" class="p-form helpdesk-admin-audit__filters">
+                  <div class="p-form__group">
+                    <label for="audit-category" class="p-form__label">Show</label>
+                    <select id="audit-category" class="p-form__control">
+                      <option value="">All activity</option>
+                    </select>
+                  </div>
+                  <div class="p-form__group helpdesk-admin-audit__search">
+                    <label for="audit-search" class="p-form__label">Search</label>
+                    <input
+                      type="search"
+                      id="audit-search"
+                      class="p-form__control"
+                      placeholder="IP address, email, room, path…"
+                      autocomplete="off"
+                    />
+                  </div>
+                  <div class="helpdesk-admin-audit__actions">
+                    <button type="submit" class="p-button--positive">Apply</button>
+                    <button type="button" class="p-button" id="audit-refresh-btn">Refresh</button>
+                    <button type="button" class="p-button" id="audit-export-btn">
+                      Download CSV
+                    </button>
+                  </div>
+                </form>
+                <div id="audit-error" class="p-notification--negative u-hide">
+                  <div class="p-notification__content">
+                    <p class="p-notification__message" id="audit-error-text"></p>
+                  </div>
+                </div>
+                <div class="helpdesk-admin-audit__table-wrapper">
+                  <table class="helpdesk-admin-audit__table" aria-label="Audit log">
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>IP address</th>
+                        <th>Who</th>
+                        <th>Event</th>
+                        <th>Details</th>
+                      </tr>
+                    </thead>
+                    <tbody id="audit-list"></tbody>
+                  </table>
+                </div>
+                <p id="audit-empty" class="u-text-muted u-hide">No matching activity.</p>
+                <button type="button" class="p-button u-hide" id="audit-more-btn">Load more</button>
               </div>
             </div>
           </div>

@@ -2,12 +2,22 @@ import 'dotenv/config';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import crypto from 'crypto';
+import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 import http from 'http';
+import proxyaddr from 'proxy-addr';
 import * as db from './db.js';
+import {
+  AUDIT_CATEGORIES,
+  MAX_AUDIT_ENTRIES,
+  auditCsv,
+  queryAudit,
+  recordAudit,
+  sessionTag,
+} from './audit.js';
 import {
   initSettings,
   getRooms,
@@ -50,6 +60,9 @@ import {
 } from './telegram.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const APP_VERSION = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')
+).version;
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'helpdesk';
@@ -68,6 +81,54 @@ if (process.env.TRUST_PROXY) {
 
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
+
+const sessions = new Map();
+
+/** Who is making a request: an admin session, an Ubuntu SSO user, or anonymous. */
+function describeActor(token, ssoUser) {
+  if (token && sessions.has(token)) return `admin (${sessionTag(token)})`;
+  if (ssoUser) return ssoUser.email || ssoUser.nickname || ssoDisplayName(ssoUser);
+  return 'anonymous';
+}
+
+/** Attach a meaningful audit event to this request; it is written when the response finishes. */
+function audit(req, action, details = {}, target) {
+  req.audit = { action, details, target };
+}
+
+function isPageView(req) {
+  return (
+    (req.method === 'GET' || req.method === 'HEAD') &&
+    !req.path.startsWith('/api/') &&
+    req.path !== '/ws' &&
+    !path.extname(req.path)
+  );
+}
+
+// Audit every page view, every change, and every denied request (with the client IP).
+app.use((req, res, next) => {
+  const actor = describeActor(req.cookies?.admin_session, getSsoUser(req));
+  res.on('finish', () => {
+    const base = {
+      ip: req.ip,
+      actor: req.auditActor || actor,
+      method: req.method,
+      path: req.originalUrl.split('?')[0],
+      status: res.statusCode,
+      userAgent: req.get('user-agent'),
+    };
+    if (req.audit) {
+      recordAudit({ ...base, ...req.audit });
+    } else if (isPageView(req)) {
+      recordAudit({ ...base, action: 'page.view', details: { query: req.originalUrl.split('?')[1] } });
+    } else if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+      recordAudit({ ...base, action: 'http.request' });
+    } else if (res.statusCode === 401 || res.statusCode === 403) {
+      recordAudit({ ...base, action: 'http.denied' });
+    }
+  });
+  next();
+});
 app.get('/favicon.ico', (_req, res) => res.redirect(301, '/favicon.png'));
 const publicDir = path.join(__dirname, '..', 'public');
 
@@ -87,8 +148,6 @@ app.use((req, res, next) => {
 });
 
 app.use(express.static(publicDir, { extensions: ['html'] }));
-
-const sessions = new Map();
 
 function signSession() {
   return crypto.randomBytes(32).toString('hex');
@@ -212,10 +271,25 @@ function dropClient(conversationId, client) {
   broadcastPresence(conversationId);
 }
 
+function wsAudit(req, action, details, target) {
+  const cookies = parseCookieHeader(req.headers.cookie);
+  const ssoUser = getSsoUserFromHeaders(req.headers);
+  recordAudit({
+    action,
+    ip: proxyaddr(req, app.get('trust proxy fn')),
+    actor: describeActor(cookies.admin_session, ssoUser),
+    target,
+    path: '/ws',
+    userAgent: req.headers['user-agent'],
+    details,
+  });
+}
+
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url || '', `http://${req.headers.host}`);
   const conversationId = url.searchParams.get('conversationId');
   const role = url.searchParams.get('role');
+  const connectedAt = Date.now();
   if (!conversationId) {
     ws.close(4000, 'conversationId required');
     return;
@@ -231,13 +305,16 @@ wss.on('connection', (ws, req) => {
   }
   const adminToken = parseCookieHeader(req.headers.cookie).admin_session;
   if (role === 'support' && !(adminToken && sessions.has(adminToken))) {
+    wsAudit(req, 'connection.denied', { role, room: conversation.room }, conversationId);
     ws.close(4001, 'Unauthorized');
     return;
   }
   if (role === 'participant' && !canParticipantAccess(conversation, getSsoUserFromHeaders(req.headers))) {
+    wsAudit(req, 'connection.denied', { role, room: conversation.room }, conversationId);
     ws.close(4001, 'Unauthorized');
     return;
   }
+  wsAudit(req, 'connection.open', { role, room: conversation.room }, conversationId);
   const client = { ws, sender: role };
   if (!clients.has(conversationId)) clients.set(conversationId, new Set());
   clients.get(conversationId).add(client);
@@ -266,7 +343,15 @@ wss.on('connection', (ws, req) => {
     }
   });
 
-  ws.on('close', () => dropClient(conversationId, client));
+  ws.on('close', () => {
+    dropClient(conversationId, client);
+    wsAudit(
+      req,
+      'connection.close',
+      { role, room: conversation.room, seconds: Math.round((Date.now() - connectedAt) / 1000) },
+      conversationId
+    );
+  });
 });
 
 function parseCookieHeader(header) {
@@ -279,7 +364,10 @@ function parseCookieHeader(header) {
   return out;
 }
 
-app.get('/auth/sso/login', (req, res) => startSsoLogin(req, res));
+app.get('/auth/sso/login', (req, res) => {
+  audit(req, 'sso.login_start', { next: req.query.next });
+  startSsoLogin(req, res);
+});
 
 app.get('/auth/sso/callback', (req, res) => handleSsoCallback(req, res));
 
@@ -292,6 +380,7 @@ app.post('/auth/sso/callback', express.urlencoded({ extended: false }), (req, re
 });
 
 app.post('/auth/sso/logout', (req, res) => {
+  audit(req, 'sso.logout');
   ssoLogout(req, res);
   res.json({ ok: true });
 });
@@ -331,22 +420,26 @@ app.get('/api/availability', (_req, res) => {
 });
 
 app.post('/api/conversations', (req, res) => {
+  const { room, participantName } = req.body || {};
   const availability = getAvailability();
   if (!availability.open) {
+    audit(req, 'chat.start_denied', { room, reason: 'Help desk closed' });
     return res.status(403).json({ error: availability.message });
   }
   const ssoUser = getSsoUser(req);
   if (getSsoRequired() && !ssoUser) {
+    audit(req, 'chat.start_denied', { room, reason: 'Ubuntu SSO sign-in required' });
     return res
       .status(401)
       .json({ error: 'Sign in with Ubuntu SSO to start a chat', ssoRequired: true });
   }
-  const { room, participantName } = req.body || {};
   if (!room || !getRooms().includes(room)) {
+    audit(req, 'chat.start_denied', { room, reason: 'Unknown room' });
     return res.status(400).json({ error: 'Invalid room' });
   }
   const name = String(participantName || '').trim() || (ssoUser ? ssoDisplayName(ssoUser) : '');
   const conversation = db.createConversation(room, name, ssoUser);
+  audit(req, 'chat.start', { room, name }, conversation.id);
   res.status(201).json({ conversation });
 });
 
@@ -354,6 +447,7 @@ app.get('/api/conversations/:id', (req, res) => {
   const conversation = db.getConversation(req.params.id);
   if (!conversation) return res.status(404).json({ error: 'Not found' });
   if (!requireConversationAccess(req, res, conversation)) return;
+  if (isAdmin(req)) audit(req, 'chat.view', { room: conversation.room }, conversation.id);
   res.json({ conversation: enrichConversation(conversation) });
 });
 
@@ -383,7 +477,7 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
   const updated = enrichConversation(db.getConversation(req.params.id));
   broadcast(req.params.id, { type: 'message', message, conversation: updated });
   relayTyping(req.params.id, sender, false);
-  await notifyTelegram(
+  const telegram = await notifyTelegram(
     formatNewMessageNotification({
       baseUrl: resolveHelpBaseUrl(req),
       room: conversation.room,
@@ -392,6 +486,17 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
       sender,
       body: message.body,
     })
+  );
+  audit(
+    req,
+    'chat.message',
+    {
+      room: conversation.room,
+      sender,
+      characters: message.body.length,
+      telegram: telegram.ok ? 'sent' : telegram.skipped ? 'not configured' : `failed: ${telegram.error}`,
+    },
+    conversation.id
   );
   res.status(201).json({ message, conversation: updated });
 });
@@ -411,6 +516,7 @@ app.post('/api/conversations/:id/end', (req, res) => {
     return res.json({ conversation });
   }
   const updated = setConversationStatus(req.params.id, 'resolved');
+  audit(req, 'chat.end', { room: conversation.room, by: isAdmin(req) ? 'support' : 'participant' }, conversation.id);
   res.json({ conversation: updated });
 });
 
@@ -422,6 +528,12 @@ app.patch('/api/conversations/:id', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'Invalid status' });
   }
   const updated = setConversationStatus(req.params.id, status);
+  audit(
+    req,
+    status === 'resolved' ? 'chat.resolve' : 'chat.status',
+    { room: conversation.room, from: conversation.status, to: status },
+    conversation.id
+  );
   res.json({ conversation: updated });
 });
 
@@ -436,10 +548,13 @@ app.get('/api/admin/conversations', requireAdmin, (req, res) => {
 app.post('/api/admin/login', (req, res) => {
   const { password } = req.body || {};
   if (password !== ADMIN_PASSWORD) {
+    audit(req, 'admin.login_failed', { reason: 'Wrong password' });
     return res.status(401).json({ error: 'Invalid password' });
   }
   const token = signSession();
   sessions.set(token, { createdAt: Date.now() });
+  req.auditActor = `admin (${sessionTag(token)})`;
+  audit(req, 'admin.login');
   res.cookie('admin_session', token, {
     httpOnly: true,
     sameSite: 'strict',
@@ -452,6 +567,7 @@ app.post('/api/admin/login', (req, res) => {
 
 app.post('/api/admin/logout', (req, res) => {
   const token = req.cookies?.admin_session;
+  audit(req, 'admin.logout');
   if (token) sessions.delete(token);
   res.clearCookie('admin_session');
   res.json({ ok: true });
@@ -482,6 +598,10 @@ app.post('/api/admin/telegram/test', requireAdmin, async (req, res) => {
     }
   }
   const result = await sendTelegramTestMessage(overrides);
+  audit(req, 'telegram.test', {
+    result: result.ok ? 'sent' : `failed: ${result.error}`,
+    proxy: overrides.proxy?.enabled ? overrides.proxy.url : undefined,
+  });
   if (result.ok) return res.json({ ok: true });
   res.status(400).json({ error: result.error || 'Test message failed' });
 });
@@ -501,6 +621,7 @@ app.get('/api/admin/print', requireAdmin, async (req, res) => {
     names = [match];
   }
   if (!names.length) return res.status(400).send('No rooms configured');
+  audit(req, 'print.generate', { rooms: roomParam === 'all' ? `all (${names.length})` : names[0] });
   try {
     const html = await renderPrintDocument(names, req);
     res.type('html').send(html);
@@ -520,6 +641,7 @@ function sendGuideError(res, err) {
 app.post('/api/admin/guides', requireAdmin, (req, res) => {
   try {
     const guide = createGuide(req.body || {});
+    audit(req, 'guide.create', { title: guide.title, enabled: guide.enabled }, guide.slug);
     res.status(201).json({ guide, guides: getGuides() });
   } catch (err) {
     sendGuideError(res, err);
@@ -528,8 +650,19 @@ app.post('/api/admin/guides', requireAdmin, (req, res) => {
 
 app.put('/api/admin/guides/:id', requireAdmin, (req, res) => {
   try {
+    const before = getGuides().find((g) => g.id === req.params.id);
     const guide = updateGuide(req.params.id, req.body || {});
     if (!guide) return res.status(404).json({ error: 'Guide not found' });
+    const changed = Object.keys(guide).filter(
+      (key) => before && JSON.stringify(before[key]) !== JSON.stringify(guide[key])
+    );
+    const onlyToggle = changed.length === 1 && changed[0] === 'enabled';
+    audit(
+      req,
+      onlyToggle ? (guide.enabled ? 'guide.enable' : 'guide.disable') : 'guide.update',
+      { title: guide.title, changed: changed.join(', ') || 'nothing' },
+      guide.slug
+    );
     res.json({ guide, guides: getGuides() });
   } catch (err) {
     sendGuideError(res, err);
@@ -543,17 +676,25 @@ app.post('/api/admin/guides/:id/move', requireAdmin, (req, res) => {
   }
   const guides = moveGuide(req.params.id, direction);
   if (!guides) return res.status(404).json({ error: 'Guide not found' });
+  const moved = guides.find((g) => g.id === req.params.id);
+  audit(req, 'guide.move', { title: moved?.title, direction }, moved?.slug);
   res.json({ guides });
 });
 
 app.delete('/api/admin/guides/:id', requireAdmin, (req, res) => {
+  const guide = getGuides().find((g) => g.id === req.params.id);
   if (!deleteGuide(req.params.id)) return res.status(404).json({ error: 'Guide not found' });
+  audit(req, 'guide.delete', { title: guide?.title }, guide?.slug);
   res.json({ guides: getGuides() });
 });
 
 app.get('/api/admin/data/export', requireAdmin, (_req, res) => {
   const snapshot = exportHelpdeskData();
   const filename = `helpdesk-export-${snapshot.exportedAt.slice(0, 10)}.json`;
+  audit(req, 'data.export', {
+    conversations: snapshot.conversations.length,
+    messages: snapshot.messages.length,
+  });
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(JSON.stringify(snapshot, null, 2));
@@ -566,11 +707,36 @@ app.post('/api/admin/data/import', requireAdmin, (req, res) => {
   }
   try {
     importHelpdeskData(data, { settingsOnly: Boolean(settingsOnly) });
+    audit(req, 'data.import', { mode: settingsOnly ? 'settings only' : 'all data' });
     res.json({ ok: true, ...getAdminSettingsView() });
   } catch (err) {
+    audit(req, 'data.import_failed', { error: err.message });
     res.status(400).json({ error: err.message || 'Import failed' });
   }
 });
+
+/** Summarise a settings change without recording secrets. */
+function describeSettingsChange(body) {
+  const details = {};
+  if (body.rooms !== undefined) details.rooms = Array.isArray(body.rooms) ? `${body.rooms.length} rooms` : 'invalid';
+  if (body.wifi !== undefined) {
+    details.wifi = body.wifi?.enabled === false ? 'disabled' : `enabled, SSID "${body.wifi?.ssid ?? ''}"`;
+  }
+  if (body.helpBaseUrl !== undefined) details.helpBaseUrl = body.helpBaseUrl || '(this server)';
+  if (body.ssoRequired !== undefined) details.ssoRequired = body.ssoRequired;
+  if (body.schedule !== undefined) {
+    const s = body.schedule || {};
+    details.hours = [s.startDate, s.endDate, s.openTime && `${s.openTime}–${s.closeTime}`, s.timeZone]
+      .filter(Boolean)
+      .join(', ') || 'always open';
+  }
+  if (body.telegramBotToken !== undefined) details.telegramToken = 'replaced';
+  if (body.telegramChatId !== undefined) details.telegramChatId = body.telegramChatId;
+  if (body.telegramProxy !== undefined) {
+    details.telegramProxy = body.telegramProxy?.enabled ? body.telegramProxy.url : 'off';
+  }
+  return details;
+}
 
 app.put('/api/admin/settings', requireAdmin, (req, res) => {
   const {
@@ -619,10 +785,30 @@ app.put('/api/admin/settings', requireAdmin, (req, res) => {
         proxy: telegramProxy,
       });
     }
+    audit(req, 'settings.update', describeSettingsChange(req.body || {}));
     res.json(getAdminSettingsView());
   } catch (err) {
+    audit(req, 'settings.update_failed', { ...describeSettingsChange(req.body || {}), error: err.message });
     res.status(400).json({ error: err.message || 'Invalid settings' });
   }
+});
+
+app.get('/api/admin/audit', requireAdmin, (req, res) => {
+  const { category = '', q = '', before = '', limit = 100 } = req.query;
+  res.json({
+    ...queryAudit({ category, q, before, limit }),
+    categories: AUDIT_CATEGORIES,
+    maxEntries: MAX_AUDIT_ENTRIES,
+  });
+});
+
+app.get('/api/admin/audit/export', requireAdmin, (req, res) => {
+  const { category = '', q = '' } = req.query;
+  audit(req, 'audit.export', { category, search: q });
+  const stamp = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="helpdesk-audit-${stamp}.csv"`);
+  res.send(auditCsv({ category, q }));
 });
 
 function listAccessUrls(port) {
@@ -640,6 +826,12 @@ function listAccessUrls(port) {
 
 server.listen(PORT, HOST, () => {
   console.log(`Help desk listening on ${HOST}:${PORT}`);
+  recordAudit({
+    action: 'system.start',
+    ip: 'server',
+    actor: 'system',
+    details: { version: APP_VERSION, port: PORT },
+  });
   for (const url of listAccessUrls(PORT)) {
     console.log(`  ${url}`);
     console.log(`  ${url}/admin`);

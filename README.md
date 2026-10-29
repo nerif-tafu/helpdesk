@@ -29,6 +29,10 @@ Set the bot token and chat ID in **Settings → Telegram notifications**. If the
 
 The **Guides & FAQ** admin tab adds, edits, reorders, enables/disables, and deletes the cards on the home page. Each guide is served at `/guides/<slug>`. Content uses a small Markdown subset: `## Heading`, `1. Step`, `- Bullet`, `**bold**`, and `[link](https://…)`.
 
+## Audit log
+
+The **Audit log** admin tab records page views, chats, live connections, sign-ins, settings and guide changes, printouts, backups, and denied requests, each with the client IP address, actor, and user agent. Passwords and tokens are never logged. Entries are stored in `data/audit.jsonl` (the latest 20,000 are kept) and can be filtered, searched, and downloaded as CSV. Behind a reverse proxy, set `TRUST_PROXY` so the real client IP is recorded.
+
 ## Environment
 
 | Variable | Purpose |
@@ -44,7 +48,7 @@ The **Guides & FAQ** admin tab adds, edits, reorders, enables/disables, and dele
 Push a version tag to build an image on GHCR:
 
 ```bash
-git tag v1.4.3 && git push origin v1.4.3
+git tag v1.5.0 && git push origin v1.5.0
 ```
 
 ```bash
@@ -52,7 +56,7 @@ docker run -d -p 3000:3000 \
   -e ADMIN_PASSWORD=change-me \
   -e SESSION_SECRET=change-me \
   -v helpdesk-data:/app/data \
-  ghcr.io/nerif-tafu/helpdesk:1.4.3
+  ghcr.io/nerif-tafu/helpdesk:1.5.0
 ```
 
 ## Production

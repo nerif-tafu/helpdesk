@@ -11,6 +11,7 @@ const ADMIN_TABS = [
   { key: 'rooms', btn: 'tab-rooms-btn', panel: 'tab-rooms', onShow: loadSettings },
   { key: 'guides', btn: 'tab-guides-btn', panel: 'tab-guides', onShow: loadGuides },
   { key: 'settings', btn: 'tab-settings-btn', panel: 'tab-settings', onShow: loadSettings },
+  { key: 'audit', btn: 'tab-audit-btn', panel: 'tab-audit', onShow: () => loadAudit() },
 ];
 
 let showAdminTab = () => {};
@@ -58,6 +59,7 @@ export async function initAdmin() {
   initTabs();
   initSettingsForms();
   initGuides();
+  initAudit();
 
   function showLogin() {
     loginSection.classList.remove('u-hide');
@@ -406,6 +408,190 @@ async function saveSsoSetting(e) {
   input.checked = !required;
   const err = await res.json().catch(() => ({}));
   showError('sso-error', 'sso-error-text', err.error || 'Failed to save Ubuntu SSO setting');
+}
+
+const AUDIT_LABELS = {
+  'page.view': 'Viewed page',
+  'chat.start': 'Started chat',
+  'chat.start_denied': 'Chat start refused',
+  'chat.message': 'Sent message',
+  'chat.view': 'Opened chat',
+  'chat.end': 'Ended chat',
+  'chat.resolve': 'Resolved chat',
+  'chat.status': 'Changed chat status',
+  'connection.open': 'Connected to chat',
+  'connection.close': 'Disconnected from chat',
+  'connection.denied': 'Chat connection refused',
+  'admin.login': 'Support signed in',
+  'admin.login_failed': 'Support sign-in failed',
+  'admin.logout': 'Support signed out',
+  'sso.login_start': 'Started Ubuntu SSO sign-in',
+  'sso.login': 'Signed in with Ubuntu SSO',
+  'sso.login_failed': 'Ubuntu SSO sign-in failed',
+  'sso.logout': 'Signed out of Ubuntu SSO',
+  'settings.update': 'Changed settings',
+  'settings.update_failed': 'Settings change rejected',
+  'guide.create': 'Added guide',
+  'guide.update': 'Edited guide',
+  'guide.enable': 'Enabled guide',
+  'guide.disable': 'Disabled guide',
+  'guide.move': 'Reordered guide',
+  'guide.delete': 'Deleted guide',
+  'telegram.test': 'Sent Telegram test',
+  'print.generate': 'Printed tent cards',
+  'data.export': 'Exported data',
+  'data.import': 'Imported data',
+  'data.import_failed': 'Import failed',
+  'audit.export': 'Downloaded audit log',
+  'http.request': 'Request',
+  'http.denied': 'Access denied',
+  'system.start': 'Server started',
+};
+
+const AUDIT_FAILURES = new Set([
+  'chat.start_denied',
+  'connection.denied',
+  'admin.login_failed',
+  'sso.login_failed',
+  'settings.update_failed',
+  'data.import_failed',
+  'http.denied',
+]);
+
+let auditLastId = null;
+let auditPages = 0;
+let auditTimer = null;
+let auditCategoriesLoaded = false;
+
+function initAudit() {
+  document.getElementById('audit-filters')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    loadAudit();
+  });
+  document.getElementById('audit-category')?.addEventListener('change', () => loadAudit());
+  document.getElementById('audit-refresh-btn')?.addEventListener('click', () => loadAudit());
+  document.getElementById('audit-more-btn')?.addEventListener('click', () => loadAudit({ more: true }));
+  document.getElementById('audit-export-btn')?.addEventListener('click', () => {
+    window.open(`/api/admin/audit/export?${auditQuery().toString()}`, '_blank');
+  });
+  // Keep the first page live while the tab is open.
+  auditTimer = setInterval(() => {
+    const panel = document.getElementById('tab-audit');
+    const searching = document.activeElement === document.getElementById('audit-search');
+    if (panel && !panel.hidden && auditPages <= 1 && !searching) loadAudit({ quiet: true });
+  }, 10000);
+}
+
+function auditQuery() {
+  const params = new URLSearchParams();
+  const category = document.getElementById('audit-category')?.value;
+  const q = document.getElementById('audit-search')?.value.trim();
+  if (category) params.set('category', category);
+  if (q) params.set('q', q);
+  return params;
+}
+
+async function loadAudit({ more = false, quiet = false } = {}) {
+  const params = auditQuery();
+  params.set('limit', '100');
+  if (more && auditLastId) params.set('before', auditLastId);
+  const res = await fetch(`/api/admin/audit?${params}`, { credentials: 'include' });
+  if (!res.ok) {
+    if (!quiet) showError('audit-error', 'audit-error-text', 'Could not load the audit log.');
+    return;
+  }
+  hideNotice('audit-error');
+  const data = await res.json();
+  populateAuditCategories(data.categories);
+  const intro = document.getElementById('audit-intro');
+  if (intro) {
+    intro.textContent = `Every page view, chat, sign-in, and change on the site, with the visitor’s IP address. Newest first; the latest ${data.maxEntries.toLocaleString()} events are kept.`;
+  }
+  const tbody = document.getElementById('audit-list');
+  if (!more) {
+    tbody.innerHTML = '';
+    auditPages = 0;
+  }
+  auditPages += 1;
+  for (const entry of data.entries) tbody.appendChild(renderAuditRow(entry));
+  auditLastId = data.entries.length ? data.entries[data.entries.length - 1].id : auditLastId;
+  document.getElementById('audit-empty')?.classList.toggle('u-hide', tbody.children.length > 0);
+  document.getElementById('audit-more-btn')?.classList.toggle('u-hide', !data.hasMore);
+}
+
+function populateAuditCategories(categories) {
+  const select = document.getElementById('audit-category');
+  if (!select || auditCategoriesLoaded || !categories) return;
+  for (const [value, label] of Object.entries(categories)) {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = label;
+    select.appendChild(opt);
+  }
+  auditCategoriesLoaded = true;
+}
+
+function formatAuditDetails(entry) {
+  const parts = [];
+  if (entry.method && entry.path && entry.action !== 'page.view') {
+    parts.push(`${entry.method} ${entry.path}`);
+  } else if (entry.path) {
+    parts.push(entry.path);
+  }
+  if (entry.status >= 300 && entry.status !== 304) parts.push(`HTTP ${entry.status}`);
+  if (entry.target) parts.push(`target: ${entry.target}`);
+  for (const [key, value] of Object.entries(entry.details || {})) {
+    parts.push(`${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`);
+  }
+  return parts.join(' · ');
+}
+
+/** "Chrome on macOS"-style summary of a user agent string. */
+function shortUserAgent(ua) {
+  if (!ua) return '';
+  const browser =
+    [
+      [/Edg\//, 'Edge'],
+      [/OPR\/|Opera/, 'Opera'],
+      [/Firefox\//, 'Firefox'],
+      [/Chrome\//, 'Chrome'],
+      [/Safari\//, 'Safari'],
+      [/^curl\//, 'curl'],
+      [/bot|crawler|spider/i, 'Bot'],
+    ].find(([re]) => re.test(ua))?.[1] || 'Other client';
+  const os =
+    [
+      [/iPhone|iPad|iPod/, 'iOS'],
+      [/Android/, 'Android'],
+      [/Mac OS X|Macintosh/, 'macOS'],
+      [/Windows/, 'Windows'],
+      [/CrOS/, 'ChromeOS'],
+      [/Linux/, 'Linux'],
+    ].find(([re]) => re.test(ua))?.[1] || '';
+  return os ? `${browser} on ${os}` : browser;
+}
+
+function renderAuditRow(entry) {
+  const tr = document.createElement('tr');
+  const time = new Date(entry.at);
+  const label = AUDIT_LABELS[entry.action] || entry.action;
+  const failed = AUDIT_FAILURES.has(entry.action) || entry.status >= 400;
+  tr.innerHTML = `
+    <td class="helpdesk-admin-audit__time"><time datetime="${escapeHtml(entry.at)}">${escapeHtml(
+      time.toLocaleString([], { dateStyle: 'short', timeStyle: 'medium' })
+    )}</time></td>
+    <td class="helpdesk-admin-audit__ip"></td>
+    <td class="helpdesk-admin-audit__actor"></td>
+    <td><span class="${failed ? 'p-status-label--negative' : 'p-status-label'}"></span></td>
+    <td class="helpdesk-admin-audit__details"><span class="helpdesk-admin-audit__detail-text"></span><span class="helpdesk-admin-audit__ua u-text-muted"></span></td>`;
+  tr.querySelector('.helpdesk-admin-audit__ip').textContent = entry.ip;
+  tr.querySelector('.helpdesk-admin-audit__actor').textContent = entry.actor;
+  tr.querySelector('span[class^="p-status-label"]').textContent = label;
+  tr.querySelector('.helpdesk-admin-audit__detail-text').textContent = formatAuditDetails(entry);
+  const ua = tr.querySelector('.helpdesk-admin-audit__ua');
+  ua.textContent = shortUserAgent(entry.userAgent);
+  if (entry.userAgent) ua.title = entry.userAgent;
+  return tr;
 }
 
 let guides = [];
